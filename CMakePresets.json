@@ -1,0 +1,44 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "vscode-debug",
+      "displayName": "Debug (VS Code, GCC 15.2, Qt 6.10)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-vscode-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "/mnt/raid1/gcc-15.2.0/bin/gcc",
+        "CMAKE_CXX_COMPILER": "/mnt/raid1/gcc-15.2.0/bin/g++",
+        "CMAKE_PREFIX_PATH": "/mnt/raid1/Qt/6.10.0/gcc_64"
+      }
+    },
+    {
+      "name": "qtcreator-debug",
+      "displayName": "Debug (Qt Creator, GCC 15.2, Qt 6.10)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-qtcreator-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "/mnt/raid1/gcc-15.2.0/bin/gcc",
+        "CMAKE_CXX_COMPILER": "/mnt/raid1/gcc-15.2.0/bin/g++",
+        "CMAKE_PREFIX_PATH": "/mnt/raid1/Qt/6.10.0/gcc_64"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "vscode-debug",
+      "configurePreset": "vscode-debug"
+    },
+    {
+      "name": "qtcreator-debug",
+      "configurePreset": "qtcreator-debug"
+    }
+  ]
+}

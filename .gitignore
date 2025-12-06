@@ -1,0 +1,33 @@
+# --- CMake build directories ---
+build*/
+cmake-build-*/
+
+# CMake files (if someone ever builds in-source by mistake)
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+_compile_commands.json
+CTestTestfile.cmake
+
+# Qt autogen / moc (again, in case of in-source build)
+*_autogen/
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# VS Code
+.vscode/
+.vscode-test/
+
+# QtCreator user files
+*.user
+*.autosave
+
+# Generic
+*.log
+*.tmp
+*.swp

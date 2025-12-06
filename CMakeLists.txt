@@ -15,20 +15,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-#[[add_executable(rpm_dnf_gui
+add_executable(rpm_dnf_gui
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
     src/packagemodel.cpp
     src/packagemodel.h
-)]]
+)
 
 add_executable(qt_thread_test 
-    src/qt_thread_test.cpp
-    src/qtworker.cpp
-    src/qtworker.h
+    src/test/qt_thread_test.cpp
+    src/test/qtworker.cpp
+    src/test/qtworker.h
 )
-#target_link_libraries(rpm_dnf_gui PRIVATE Qt6::Widgets Qt6::Core pthread)
+target_link_libraries(rpm_dnf_gui PRIVATE Qt6::Widgets Qt6::Core pthread)
 
 target_link_libraries(qt_thread_test PRIVATE  Qt6::Core pthread)
 

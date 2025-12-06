@@ -17,7 +17,7 @@
 
 struct PackageInfo {
     QString name;
-    QString version;  // VERSION-RELEASE
+    QString version;  /** VERSION-RELEASE */
     QString arch;
 };
 

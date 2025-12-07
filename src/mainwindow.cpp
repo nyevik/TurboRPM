@@ -186,7 +186,13 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
         const QByteArray line = lines.at(i).trimmed();
         // Skip empty lines (typically the last element after final \n)
         if (line.isEmpty())
+        {
+            #ifdef QT_DEBUG
+            qDebug() << "Skipping empty line at index" << i;
+            #endif
             continue;
+        }
+        
         const QList<QByteArray> fields = line.split('\t');
 
         #ifdef QT_DEBUG

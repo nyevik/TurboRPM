@@ -42,4 +42,4 @@ target_link_libraries(turborpm PRIVATE Qt6::Widgets Qt6::Core pthread)
 target_link_libraries(qt_thread_test PRIVATE  Qt6::Core pthread)
 
 # Optionally install
-#install(TARGETS rpm_dnf_gui)
+#install(TARGETS turborpm)

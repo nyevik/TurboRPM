@@ -3,9 +3,9 @@
  * @date 2025
  * @brief Model for representing RPM package information in a table view
  * This file is part of a Qt-based application for managing RPM packages.
- * It defines a data model that holds package information such as name,
+ * It defines a data MODEL that holds package information such as name,
  * version, and architecture, and provides the necessary interface for displaying
- * this information in a Qt view component.
+ * this information in a Qt VIEW component.
  */
 
 
@@ -16,9 +16,9 @@
 #include <QVector>
 
 struct PackageInfo {
-    QString name;
+    QString name; /** RPM package name */
     QString version;  /** VERSION-RELEASE */
-    QString arch;
+    QString arch; /** Architecture such as x86_64, noarch, etc. */
 };
 
 class PackageTableModel : public QAbstractTableModel

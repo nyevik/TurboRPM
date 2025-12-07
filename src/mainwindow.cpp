@@ -84,7 +84,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     setCentralWidget(central);
 
-    // Connections
+    /** Connections -> Slots to signals */
     connect(m_btnRefresh, &QPushButton::clicked, this, &MainWindow::refreshPackages);
     connect(m_searchEdit, &QLineEdit::textChanged, this, &MainWindow::onSearchTextChanged);
 

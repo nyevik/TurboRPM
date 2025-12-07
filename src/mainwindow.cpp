@@ -19,7 +19,7 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(QStringLiteral("RPM/DNF GUI Wrapper (Prototype)"));
+    setWindowTitle(QStringLiteral("TurboRPM (Prototype)"));
     resize(900, 600);
 
     auto *central = new QWidget(this);

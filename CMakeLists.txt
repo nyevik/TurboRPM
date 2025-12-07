@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(RpmDnfGui VERSION 0.1 LANGUAGES CXX)
+project(TurboRPM VERSION 0.1 LANGUAGES CXX)
 
 # Qt auto-moc/uic/rcc
 set(CMAKE_AUTOMOC ON)
@@ -15,12 +15,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-add_executable(rpm_dnf_gui
+add_executable(turborpm
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
     src/packagemodel.cpp
     src/packagemodel.h
+    # Resources
+    resources.qrc
 )
 
 add_executable(qt_thread_test 
@@ -28,7 +30,14 @@ add_executable(qt_thread_test
     src/test/qtworker.cpp
     src/test/qtworker.h
 )
-target_link_libraries(rpm_dnf_gui PRIVATE Qt6::Widgets Qt6::Core pthread)
+
+#[[qt_add_resources(turborpm "app_resources"
+    PREFIX "/src/icons"
+    FILES
+        app-icon-512x512.png
+)]]
+
+target_link_libraries(turborpm PRIVATE Qt6::Widgets Qt6::Core pthread)
 
 target_link_libraries(qt_thread_test PRIVATE  Qt6::Core pthread)
 

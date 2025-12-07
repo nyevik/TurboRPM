@@ -25,6 +25,10 @@
 #include <QVBoxLayout>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include<QThreadStorage> //* for thread local storage */
+#include <QThread> //* for QThread */
+
+
 
 /** Constructor */
 MainWindow::MainWindow(QWidget *parent)
@@ -132,7 +136,8 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 {
     QVector<PackageInfo> result;
 
-    QProcess proc;
+    QProcess proc;//* to run rpm -qa */
+    //proc.setProcessChannelMode(QProcess::SeparateChannels); //* we want to read stdout and stderr separately */
     QStringList args;
     args << "-qa" << "--qf" << "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\t%{SUMMARY}\n";
 
@@ -157,12 +162,15 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
         return result;
     }
 
-    const QByteArray out = proc.readAllStandardOutput();
-    const QByteArray err = proc.readAllStandardError();
-    const QList<QByteArray> lines = out.split('\n');
+    const QByteArray out = proc.readAllStandardOutput(); //* read stdout  into QByteArray */
+    const QByteArray err = proc.readAllStandardError();  //* read stderr into QByteArray */
+    const QList<QByteArray> lines = out.split('\n'); //* split output into lines */
 
     #ifdef QT_DEBUG
     qDebug() << "rpm -qa output bytes:" << out.size() << "stderr bytes:" << err.size();
+    if (!err.isEmpty())
+        qDebug() << "rpm -qa stderr:" << err;
+    qDebug() << "rpm -qa total lines:" << lines.size();
     #endif
 
     for (int i = 0; i < lines.size(); ++i) {

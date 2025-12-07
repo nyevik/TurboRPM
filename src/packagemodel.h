@@ -19,6 +19,7 @@ struct PackageInfo {
     QString name; /** RPM package name */
     QString version;  /** VERSION-RELEASE */
     QString arch; /** Architecture such as x86_64, noarch, etc. */
+    QString summary; /** Package summary desription */
 };
 
 class PackageTableModel : public QAbstractTableModel
@@ -31,6 +32,7 @@ public:
         NameColumn = 0,
         VersionColumn,
         ArchColumn,
+        SummaryColumn,
         ColumnCount
     };
 

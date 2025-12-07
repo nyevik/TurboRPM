@@ -16,6 +16,7 @@
 #include <QFileDialog>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QDebug>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
@@ -25,6 +26,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 
+/** Constructor */
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -34,10 +36,25 @@ MainWindow::MainWindow(QWidget *parent)
     auto *central = new QWidget(this);
     auto *mainLayout = new QVBoxLayout(central);
 
-    // Top bar: search + refresh
+    /** Top bar: search + refresh */
     auto *topLayout = new QHBoxLayout();
     m_searchEdit = new QLineEdit(central);
     m_searchEdit->setPlaceholderText(QStringLiteral("Search package name..."));
+    QFont baseFont = m_searchEdit->font();
+    QFont placeholderFont = baseFont;
+    placeholderFont.setItalic(true);
+    m_searchEdit->setFont(placeholderFont);
+
+    QPalette pal = m_searchEdit->palette();
+    pal.setColor(QPalette::PlaceholderText, QColor(128, 128, 128));
+    m_searchEdit->setPalette(pal);
+
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this, baseFont, placeholderFont](const QString &text) {
+        m_searchEdit->setFont(text.isEmpty() ? placeholderFont : baseFont);
+    });
+    m_searchEdit->setClearButtonEnabled(true);
+
+
 
     m_btnRefresh = new QPushButton(QStringLiteral("Refresh installed"), central);
 
@@ -46,7 +63,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     mainLayout->addLayout(topLayout);
 
-    // Table view
+    /** Table view */
     m_model = new PackageTableModel(this);
     m_proxy = new QSortFilterProxyModel(this);
     m_proxy->setSourceModel(m_model);
@@ -62,7 +79,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     mainLayout->addWidget(m_tableView);
 
-    // Bottom buttons
+    /** Bottom buttons */
     auto *bottomLayout = new QHBoxLayout();
 
     m_btnCheckUpdate = new QPushButton(QStringLiteral("DNF check-update"), central);
@@ -117,29 +134,66 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 
     QProcess proc;
     QStringList args;
-    args << "-qa" << "--qf" << "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n";
+    args << "-qa" << "--qf" << "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\t%{SUMMARY}\n";
 
+    /**rpm might not start so we set a timeout */
     proc.start("rpm", args);
+    if (!proc.waitForStarted(5000)) { // 5 s timeout
+        QMessageBox::warning(nullptr, tr("Error"),
+                             tr("Failed to start rpm process."));
+        return result;
+    }
+    /** rpm might be slow or hang, so we set a timeout */
     if (!proc.waitForFinished(60000)) { // 60 s timeout
         QMessageBox::warning(nullptr, tr("Error"),
                              tr("Timed out while running rpm -qa"));
         return result;
     }
 
+    
+    if (proc.exitStatus() != QProcess::NormalExit) {
+        QMessageBox::warning(nullptr, tr("Error"),
+                             tr("rpm -qa crashed while running."));
+        return result;
+    }
+
     const QByteArray out = proc.readAllStandardOutput();
+    const QByteArray err = proc.readAllStandardError();
     const QList<QByteArray> lines = out.split('\n');
 
-    for (const QByteArray &line : lines) {
-        if (line.trimmed().isEmpty())
+    #ifdef QT_DEBUG
+    qDebug() << "rpm -qa output bytes:" << out.size() << "stderr bytes:" << err.size();
+    #endif
+
+    for (int i = 0; i < lines.size(); ++i) {
+        const QByteArray line = lines.at(i).trimmed();
+        if (line.isEmpty())
             continue;
         const QList<QByteArray> fields = line.split('\t');
-        if (fields.size() < 3)
+
+        #ifdef QT_DEBUG
+        qDebug() << "Parsed rpm line" << i << "fields" << fields;
+        #endif
+
+        if (fields.size() < 3) {
+            #ifdef QT_DEBUG
+            qDebug() << "Skipping line due to insufficient fields" << fields.size();
+            #endif
             continue;
+        }
 
         PackageInfo pkg;
-        pkg.name = QString::fromLocal8Bit(fields.at(0));
-        pkg.version = QString::fromLocal8Bit(fields.at(1));
-        pkg.arch = QString::fromLocal8Bit(fields.at(2));
+        pkg.name = QString::fromLocal8Bit(fields.value(0));
+        pkg.version = QString::fromLocal8Bit(fields.value(1));
+        pkg.arch = QString::fromLocal8Bit(fields.value(2));
+        pkg.summary = QString::fromLocal8Bit(fields.value(3));
+
+        if (pkg.name.isEmpty()) {
+            #ifdef QT_DEBUG
+            qDebug() << "Skipping line because name is empty";
+            #endif
+            continue;
+        }
 
         result.push_back(pkg);
     }

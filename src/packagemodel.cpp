@@ -45,6 +45,8 @@ QVariant PackageTableModel::data(const QModelIndex &index, int role) const
             return pkg.version;
         case ArchColumn:
             return pkg.arch;
+        case SummaryColumn:
+            return pkg.summary;
         default:
             break;
         }
@@ -66,6 +68,8 @@ QVariant PackageTableModel::headerData(int section, Qt::Orientation orientation,
             return QStringLiteral("Version");
         case ArchColumn:
             return QStringLiteral("Arch");
+        case SummaryColumn:
+            return QStringLiteral("Summary");
         default:
             break;
         }

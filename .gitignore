@@ -31,3 +31,23 @@ ui_*.h
 *.log
 *.tmp
 *.swp
+
+# Qt Creator specific
+.qtcreator/
+*.pro.user
+*.qbs.user
+*.creator.user
+*.layouts
+*.session
+*.kate-swp
+*.kdev4
+*.kdev5
+*.kdevsession
+*.kdevbuild
+*.kdevtmp
+*.kdevautosave
+
+# Ignore patches
+*.patch
+*.diff
+

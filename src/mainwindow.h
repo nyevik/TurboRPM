@@ -1,3 +1,10 @@
+/**
+ * @file mainwindow.h
+ * @author Nikolay Yevik
+ * @brief Declaration of the MainWindow class for TurboRPM Package Manager Prototype.
+ * @version 0.0.1
+ * @date 2025-12-6
+ */
 #pragma once
 
 #include <QMainWindow>

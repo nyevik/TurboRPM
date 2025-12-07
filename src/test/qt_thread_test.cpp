@@ -1,3 +1,12 @@
+/**
+ * @file qt_thread_test.cpp
+ * @author Nikolay Yevik
+ * @brief Test application to compare QThread and std::jthread thread IDs.
+ * @version 0.0.1
+ * @date 2025-12-6
+ * @copyright Copyright (c) 2025 Nikolay Yevik
+ */
+
 #include <QCoreApplication>
 #include <QDebug>
 #include <QThread>

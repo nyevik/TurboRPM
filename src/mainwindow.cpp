@@ -1,3 +1,11 @@
+/**
+ * @file mainwindow.cpp
+ * @author Nikolay Yevik
+ * @brief Implementation of the MainWindow class for TurboRPM Package Manager Prototype.
+ * @version 0.0.1
+ * @date 2025-12-6
+ */
+
 #include "mainwindow.h"
 #include "packagemodel.h"
 

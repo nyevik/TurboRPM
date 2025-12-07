@@ -164,7 +164,16 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 
     const QByteArray out = proc.readAllStandardOutput(); //* read stdout  into QByteArray */
     const QByteArray err = proc.readAllStandardError();  //* read stderr into QByteArray */
-    const QList<QByteArray> lines = out.split('\n'); //* split output into lines */
+    
+    /**
+     * Split output into lines by newline character.
+     * Note: This produces empty elements because:
+     * 1. The rpm format string ends with \n (line 142), so each package line ends with \n
+     * 2. When split() encounters the trailing \n, it creates an empty string after it
+     * 3. Example: "pkg1\npkg2\n".split('\n') → ["pkg1", "pkg2", ""]
+     * This is standard QByteArray::split() behavior, not an rpm bug.
+     */
+    const QList<QByteArray> lines = out.split('\n');
 
     #ifdef QT_DEBUG
     qDebug() << "rpm -qa output bytes:" << out.size() << "stderr bytes:" << err.size();
@@ -175,6 +184,7 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 
     for (int i = 0; i < lines.size(); ++i) {
         const QByteArray line = lines.at(i).trimmed();
+        // Skip empty lines (typically the last element after final \n)
         if (line.isEmpty())
             continue;
         const QList<QByteArray> fields = line.split('\t');

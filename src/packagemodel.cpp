@@ -1,3 +1,9 @@
+/**
+ * @author Nikolay Yevik
+ * @brief Implementation of the PackageTableModel class for TurboRPM Package Manager Prototype.
+ * @version 0.0.1
+ * @date 2025-12-6
+ */
 #include "packagemodel.h"
 
 PackageTableModel::PackageTableModel(QObject *parent)

@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QFileDialog>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -287,19 +288,26 @@ void MainWindow::onShowPackageDescription()
 
 void MainWindow::onWhatProvides()
 {
-    bool ok = false;
-    QString path = QInputDialog::getText(this, tr("What provides this file"),
-                                         tr("Full path to file:"),
-                                         QLineEdit::Normal,
-                                         QString(), &ok);
-    if (!ok || path.trimmed().isEmpty())
-        return;
+    QString path = QFileDialog::getOpenFileName(this,
+                                               tr("Select file to query"),
+                                               QString());
 
+    if (path.trimmed().isEmpty()) {
+        bool ok = false;
+        path = QInputDialog::getText(this, tr("What provides this file"),
+                                     tr("Full path to file:"),
+                                     QLineEdit::Normal,
+                                     QString(), &ok);
+        if (!ok || path.trimmed().isEmpty())
+            return;
+    }
+
+    const QString trimmedPath = path.trimmed();
     int exitCode = 0;
-    QString output = runCommand("rpm", {"-qf", path.trimmed()}, exitCode);
+    QString output = runCommand("rpm", {"-qf", trimmedPath}, exitCode);
 
     QString title = tr("rpm -qf %1 (exit %2)")
-                        .arg(path.trimmed())
+                        .arg(trimmedPath)
                         .arg(exitCode);
     showTextDialog(title, output);
 }

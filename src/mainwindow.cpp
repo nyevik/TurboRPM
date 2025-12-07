@@ -27,6 +27,29 @@
 #include <QDialogButtonBox>
 #include<QThreadStorage> //* for thread local storage */
 #include <QThread> //* for QThread */
+#include <QTextStream>
+#include <optional>
+
+namespace {
+bool rpmSupportsFromRepoTag()
+{
+    static std::optional<bool> cached;
+    if (cached.has_value())
+        return cached.value();
+
+    QProcess tagProc;
+    tagProc.start("rpm", {"--querytags"});
+    if (!tagProc.waitForFinished(5000) || tagProc.exitStatus() != QProcess::NormalExit) {
+        cached = false;
+        return cached.value();
+    }
+
+    const QStringList tags = QString::fromLocal8Bit(tagProc.readAllStandardOutput())
+                                  .split('\n', Qt::SkipEmptyParts);
+    cached = tags.contains(QStringLiteral("FROMREPONAME"), Qt::CaseInsensitive);
+    return cached.value();
+}
+} // namespace
 
 
 
@@ -136,10 +159,19 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 {
     QVector<PackageInfo> result;
 
+    static constexpr QChar kFieldSep(u'\x1F'); // unit separator to avoid clashing with tabs/spaces
+
     QProcess proc;//* to run rpm -qa */
     //proc.setProcessChannelMode(QProcess::SeparateChannels); //* we want to read stdout and stderr separately */
     QStringList args;
-    args << "-qa" << "--qf" << "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\t%{SUMMARY}\n";
+    const bool hasRepoTag = rpmSupportsFromRepoTag();
+    const QString repoField = hasRepoTag ? QString::fromLatin1("\x1F%{FROMREPONAME}")
+                                         : QString::fromLatin1("\x1F");
+    args << "-qa"
+         << "--qf"
+         << QString::fromLatin1("%{NAME}\x1F%{VERSION}-%{RELEASE}\x1F%{ARCH}\x1F%{INSTALLTIME:date}\x1F%{GROUP}\x1F%{SIZE}")
+                + repoField
+                + QString::fromLatin1("\x1F%{SUMMARY}\n");
 
     /**rpm might not start so we set a timeout */
     proc.start("rpm", args);
@@ -164,62 +196,52 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 
     const QByteArray out = proc.readAllStandardOutput(); //* read stdout  into QByteArray */
     const QByteArray err = proc.readAllStandardError();  //* read stderr into QByteArray */
-    
-    /**
-     * Split output into lines by newline character.
-     * Note: This produces empty elements because:
-     * 1. The rpm format string ends with \n (line 142), so each package line ends with \n
-     * 2. When split() encounters the trailing \n, it creates an empty string after it
-     * 3. Example: "pkg1\npkg2\n".split('\n') → ["pkg1", "pkg2", ""]
-     * This is standard QByteArray::split() behavior, not an rpm bug.
-     */
-    const QList<QByteArray> lines = out.split('\n');
-
     #ifdef QT_DEBUG
     qDebug() << "rpm -qa output bytes:" << out.size() << "stderr bytes:" << err.size();
     if (!err.isEmpty())
         qDebug() << "rpm -qa stderr:" << err;
-    qDebug() << "rpm -qa total lines:" << lines.size();
     #endif
 
-    for (int i = 0; i < lines.size(); ++i) {
-        const QByteArray line = lines.at(i).trimmed();
-        // Skip empty lines (typically the last element after final \n)
-        if (line.isEmpty())
-        {
+    QString data = QString::fromLocal8Bit(out);
+    QTextStream stream(&data, QIODevice::ReadOnly);
+
+    QString line;
+    int lineIndex = 0;
+    while (stream.readLineInto(&line)) {
+        if (line.isEmpty()) {
             #ifdef QT_DEBUG
-            qDebug() << "Skipping empty line at index" << i;
+            qDebug() << "Skipping empty line at index" << lineIndex;
             #endif
+            ++lineIndex;
             continue;
         }
-        
-        const QList<QByteArray> fields = line.split('\t');
 
-        #ifdef QT_DEBUG
-        qDebug() << "Parsed rpm line" << i << "fields" << fields;
-        #endif
-
-        if (fields.size() < 3) {
-            #ifdef QT_DEBUG
-            qDebug() << "Skipping line due to insufficient fields" << fields.size();
-            #endif
-            continue;
-        }
+        const QStringList fields = line.split(kFieldSep, Qt::KeepEmptyParts);
 
         PackageInfo pkg;
-        pkg.name = QString::fromLocal8Bit(fields.value(0));
-        pkg.version = QString::fromLocal8Bit(fields.value(1));
-        pkg.arch = QString::fromLocal8Bit(fields.value(2));
-        pkg.summary = QString::fromLocal8Bit(fields.value(3));
+        pkg.name = fields.value(0).trimmed();
+        pkg.version = fields.value(1);
+        pkg.arch = fields.value(2);
+        pkg.installDate = fields.value(3);
+        pkg.group = fields.value(4);
+        pkg.size = fields.value(5);
+        pkg.repo = fields.value(6);
+        pkg.summary = fields.value(7);
+
+        #ifdef QT_DEBUG
+        qDebug() << "Parsed rpm line" << lineIndex << "fields" << fields;
+        #endif
 
         if (pkg.name.isEmpty()) {
             #ifdef QT_DEBUG
             qDebug() << "Skipping line because name is empty";
             #endif
+            ++lineIndex;
             continue;
         }
 
-        result.push_back(pkg);
+        result.push_back(std::move(pkg));
+        ++lineIndex;
     }
 
     return result;

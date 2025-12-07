@@ -19,7 +19,11 @@ struct PackageInfo {
     QString name; /** RPM package name */
     QString version;  /** VERSION-RELEASE */
     QString arch; /** Architecture such as x86_64, noarch, etc. */
-    QString summary; /** Package summary desription */
+    QString installDate; /** Human-readable install date */
+    QString group; /** DNF/RPM group (e.g., Development) */
+    QString size; /** Size on disk (as reported by rpm) */
+    QString repo; /** Repository name rpm says it came from */
+    QString summary; /** Package summary description */
 };
 
 class PackageTableModel : public QAbstractTableModel
@@ -32,6 +36,10 @@ public:
         NameColumn = 0,
         VersionColumn,
         ArchColumn,
+        InstallDateColumn,
+        GroupColumn,
+        SizeColumn,
+        RepoColumn,
         SummaryColumn,
         ColumnCount
     };

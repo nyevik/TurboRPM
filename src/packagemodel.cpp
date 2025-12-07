@@ -45,6 +45,14 @@ QVariant PackageTableModel::data(const QModelIndex &index, int role) const
             return pkg.version;
         case ArchColumn:
             return pkg.arch;
+        case InstallDateColumn:
+            return pkg.installDate;
+        case GroupColumn:
+            return pkg.group;
+        case SizeColumn:
+            return pkg.size;
+        case RepoColumn:
+            return pkg.repo;
         case SummaryColumn:
             return pkg.summary;
         default:
@@ -68,6 +76,14 @@ QVariant PackageTableModel::headerData(int section, Qt::Orientation orientation,
             return QStringLiteral("Version");
         case ArchColumn:
             return QStringLiteral("Arch");
+        case InstallDateColumn:
+            return QStringLiteral("Install Date");
+        case GroupColumn:
+            return QStringLiteral("Group");
+        case SizeColumn:
+            return QStringLiteral("Size");
+        case RepoColumn:
+            return QStringLiteral("Repository");
         case SummaryColumn:
             return QStringLiteral("Summary");
         default:

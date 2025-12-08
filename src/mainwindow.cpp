@@ -31,31 +31,20 @@
 #include <QScreen>
 #include <QScrollBar>
 #include <QStyle>
-
+#include <QDateTime>
+#include <QTimeZone>
+#include <QSet>
 
 #include <iostream>
+#include <chrono>
 
-/**namespace {
-bool rpmSupportsFromRepoTag()
-{
-    static std::optional<bool> cached;
-    if (cached.has_value())
-        return cached.value();
+//using Milliseconds = std::chrono::milliseconds;
 
-    QProcess tagProc;
-    tagProc.start("rpm", {"--querytags"});
-    if (!tagProc.waitForFinished(5000) || tagProc.exitStatus() != QProcess::NormalExit) {
-        cached = false;
-        return cached.value();
-    }
-
-    const QStringList tags = QString::fromLocal8Bit(tagProc.readAllStandardOutput())
-                                  .split('\n', Qt::SkipEmptyParts);
-    cached = tags.contains(QStringLiteral("repoid"), Qt::CaseInsensitive);
-    return cached.value();
+// File-local constants go here:
+namespace {
+    constexpr int WaitForStartedTimeoutMs {5000};   // 5 s
+    constexpr int WaitForFinishedTimeoutMs {60000};  // 60 s
 }
-} // namespace
-**/
 
 
 /** Constructor */
@@ -183,12 +172,30 @@ void MainWindow::onSearchTextChanged(const QString &text)
 
 QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 {
+#ifdef QT_DEBUG
+    QDebug dbg(QtDebugMsg);//on stack
+    
+    dbg.setVerbosity(QDebug::MaximumVerbosity);
+    dbg << "Entering MainWindow::queryInstalledPackages()";
+
+    //std::unique_ptr<QDebug> uni_qdebugobj_ptr = std::make_unique<QDebug>(QtDebugMsg);
+    //QDebug *raw_qdebugobj_ptr = uni_qdebugobj_ptr.get(); //raw pointer for easier use below
+    //std::cout << "QDebug verbosity from  uni_qdebugobj_ptr" << uni_qdebugobj_ptr->verbosity() << std::endl;
+    //std::cout << "QDebug verbosity from raw_qdebugobj_ptr" << raw_qdebugobj_ptr->verbosity( << std::endl;
+    
+    dbg.setVerbosity(QDebug::MaximumVerbosity);
+    dbg << "QDebug verbosity from dbg object " << dbg.verbosity() << "\n";
+    
+#endif
+
+    //QThread *currentThread = QThread::currentThread();
     QVector<PackageInfo> result;
 
-    static constexpr QChar kFieldSep(u'\x1F'); // unit separator to avoid clashing with tabs/spaces
+    static constexpr QChar kFieldSep(u'\x1F'); // unit separator to avoid clashing with tabs/spaces in fields
 
-    QProcess proc;//* to run rpm -qa */
-    //proc.setProcessChannelMode(QProcess::SeparateChannels); //* we want to read stdout and stderr separately */
+    QProcess proc; /** to run the command I need */
+    proc.setProcessChannelMode(QProcess::SeparateChannels); //* we want to read stdout and stderr separately */
+    
     QStringList args;
     //const bool hasRepoTag = rpmSupportsFromRepoTag();
     //const QString repoField = hasRepoTag ? QString::fromLatin1("\x1F%{repoid}")
@@ -198,36 +205,39 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
          << QString::fromLatin1("%{NAME}\x1F%{VERSION}-%{RELEASE}\x1F%{ARCH}\x1F%{INSTALLTIME:date}\x1F%{GROUP}\x1F%{SIZE}")
                 //+ repoField
                 + QString::fromLatin1("\x1F%{SUMMARY}\n");*/
+
+    QString command = QStringLiteral("dnf");
+
     //Better to use DNF to get more accurate info about installed packages
     const QString queryFormat = QStringLiteral(
-        "%{NAME}\x1F" // rpm package name
-        "%{VERSION}-%{RELEASE}\x1F"
-        "%{ARCH}\x1F"
-        "%{INSTALLTIME}\x1F"
-        "%{GROUP}\x1F"
-        "%{SIZE}\x1F" //size in bytes
+        "%{name}\x1F" // rpm package name
+        "%{version}-%{release}\x1F"
+        "%{arch}\x1F"
+        "%{installtime}\x1F"
+        "%{group}\x1F"
+        "%{size}\x1F" //size in bytes
         "%{from_repo}\x1F" //attempt to resolve what repo this package is coming from
-        "%{SUMMARY}\n");
+        "%{summary}");
 
-    args << "repoquery"
-         << "--installed"
-         << "--qf"
-         << queryFormat;
-    /**dnf might not start so we set a timeout */
-    proc.start("dnf", args);
-    if (!proc.waitForStarted(5000)) { // 5 s timeout
+    args << QStringLiteral("repoquery")
+         << QStringLiteral("--installed")
+         << QStringLiteral("--qf") << queryFormat;
+
+
+    /**command might not start so we set a timeout */
+    proc.start(command, args); /** START THE PROCESS */
+
+    if (!proc.waitForStarted(WaitForStartedTimeoutMs)) {
         QMessageBox::warning(nullptr, tr("Error"),
                              tr("Failed to start dnf process."));
         return result;
     }
-    /** rpm might be slow or hang, so we set a timeout */
-    if (!proc.waitForFinished(60000)) { // 60 s timeout
+    /** command might be slow or hang, so we set a timeout */
+    if (!proc.waitForFinished(WaitForFinishedTimeoutMs)) { // 60 s timeout
         QMessageBox::warning(nullptr, tr("Error"),
                              tr("Timed out while running dnf"));
         return result;
     }
-
-    
     if (proc.exitStatus() != QProcess::NormalExit) {
         QMessageBox::warning(nullptr, tr("Error"),
                              tr("dnf crashed while running."));
@@ -236,21 +246,8 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 
     const QByteArray out = proc.readAllStandardOutput(); //* read stdout  into QByteArray */
     const QByteArray err = proc.readAllStandardError();  //* read stderr into QByteArray */
-    #ifdef QT_DEBUG
-
-    std::unique_ptr<QDebug> uni_qdebugobj_ptr = std::make_unique<QDebug>(QtDebugMsg);
-    QDebug *raw_qdebugobj_ptr = uni_qdebugobj_ptr.get(); //raw pointer for easier use below
-
-    std::cout << "QDebug verbosity from  uni_qdebugobj_ptr" << uni_qdebugobj_ptr->verbosity() << std::endl;
-
-    std::cout << "QDebug verbosity from raw_qdebugobj_ptr" << raw_qdebugobj_ptr->verbosity() << std::endl;
    
-    QDebug dbg(QtDebugMsg);//on stack
-    
-    dbg.setVerbosity(QDebug::MaximumVerbosity);
-    dbg << "some message\n";
-    std::cout << "QDebug verbosity from dbg object" << dbg.verbosity() << std::endl;
-    
+    #ifdef QT_DEBUG
     qDebug() << "dnf repoquery output bytes:" << out.size() << "stderr bytes:" << err.size();
     if (!err.isEmpty())
         qDebug() << "dnf repoquery stderr:" << err;
@@ -261,45 +258,102 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 
     QString line;
     int lineIndex = 0;
+    // for deduplicating (name, version, arch)
+    QSet<QString> seenKeys;
+
     while (stream.readLineInto(&line)) {
-        if (line.isEmpty()) {
-            #ifdef QT_DEBUG
-            //qDebug() << "Skipping empty line at index" << lineIndex;
-            #endif
+        const QString trimmed = line.trimmed();
+        if (trimmed.isEmpty()) {
+#ifdef QT_DEBUG
+            dbg << "Skipping empty line at index "<< lineIndex << " because it is empty \n";
+#endif
             ++lineIndex;
             continue;
         }
-
-        const QStringList fields = line.split(kFieldSep, Qt::KeepEmptyParts);
+        // Filter known dnf informational noise printed to stdout
+        if (trimmed.startsWith(
+                QStringLiteral("Not root, Subscription Management repositories not updated"))) {
+#ifdef QT_DEBUG
+            dbg << "Skipping dnf info line at index because it is informational: " << lineIndex << ":" << trimmed << "\n";
+#endif
+            ++lineIndex;
+            continue;
+        }
+        const QStringList fields = trimmed.split(kFieldSep, Qt::KeepEmptyParts);
+        // Allow partially filled records, but require at least:
+        //   0: name, 1: version-release, 2: arch
+        if (fields.size() < 3) {
+#ifdef QT_DEBUG
+            dbg << "Skipping line with too few fields at index" << lineIndex << ":" << trimmed << "\n";
+#endif
+            ++lineIndex;
+            continue;
+        }
 
         PackageInfo pkg;
-        pkg.name = fields.value(0).trimmed();
-        pkg.version = fields.value(1);
-        pkg.arch = fields.value(2);
-        pkg.installDate = fields.value(3);
-        pkg.group = fields.value(4);
-        pkg.size = fields.value(5);
-        pkg.repo = fields.value(6);
-        pkg.summary = fields.value(7);
-
-        #ifdef QT_DEBUG
-        //qDebug() << "Parsed dnf line" << lineIndex << "fields" << fields;
-        #endif
-
-        if (pkg.name.isEmpty()) {
-            #ifdef QT_DEBUG
-            qDebug() << "Skipping line because name is empty";
-            #endif
+        pkg.name    = fields.value(0).trimmed();
+        pkg.version = fields.value(1).trimmed();
+        pkg.arch    = fields.value(2).trimmed();
+        // Minimal validation: if these are missing it's not a real package entry
+        if (pkg.name.isEmpty() || pkg.version.isEmpty() || pkg.arch.isEmpty()) {
+#ifdef QT_DEBUG
+            dbg << "Skipping line with empty mandatory fields at index"
+                     << lineIndex << ":" << trimmed <<"\n";
+#endif
             ++lineIndex;
             continue;
         }
+        // Deduplicate (dnf can sometimes output multiple rows for same NEVRA)
+        const QString key =
+            pkg.name + QLatin1Char('|') + pkg.version + QLatin1Char('|') + pkg.arch;
+        if (seenKeys.contains(key)) {
+#ifdef QT_DEBUG
+            dbg << "Skipping duplicate entry for" << key << "at line index" << lineIndex << "\n";
+#endif
+            ++lineIndex;
+            continue;
+        }
+        seenKeys.insert(key);
 
-        result.push_back(std::move(pkg));
+        // INSTALLTIME comes from dnf repoquery as a preformatted string
+        // (see dnf-plugins-core repoquery.py: PackageWrapper.installtime).
+        // We keep it as-is instead of trying to parse epoch seconds.
+        const QString installField = fields.value(3).trimmed();
+        pkg.installDate = installField;
+
+        //Do not like how install date is represented, convert UTC string to local time
+        /*const QDateTime dt = QDateTime::fromString(installField, Qt::ISODate);
+        if (dt.isValid()) {
+            pkg.installDate = dt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        }*/
+
+        pkg.group   = fields.value(4).trimmed();
+        
+        // SIZE: keep original string, but sanity-check that it's numeric
+        const QString sizeField = fields.value(5).trimmed();
+        bool okSize = false;
+        (void)sizeField.toLongLong(&okSize);
+        if (okSize) {
+            pkg.size = sizeField;
+        } else {
+            pkg.size.clear(); // treat nonsense size as "unknown"
+        }
+
+        #ifdef QT_DEBUG
+        //dbg << "Parsed dnf line" << lineIndex << "fields" << fields;
+        #endif
+
+        pkg.repo    = fields.value(6).trimmed();
+        pkg.summary = fields.value(7).trimmed();
+
+        result.push_back(pkg);
         ++lineIndex;
-    }
+    }//end of while reading lines
 
     return result;
-}
+}//=== End of MainWindow::queryInstalledPackages ===
+
+
 
 QString MainWindow::runCommand(const QString &program,
                                const QStringList &arguments,

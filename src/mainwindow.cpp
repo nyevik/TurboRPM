@@ -30,7 +30,7 @@
 #include <QTextStream>
 #include <optional>
 
-namespace {
+/**namespace {
 bool rpmSupportsFromRepoTag()
 {
     static std::optional<bool> cached;
@@ -46,11 +46,11 @@ bool rpmSupportsFromRepoTag()
 
     const QStringList tags = QString::fromLocal8Bit(tagProc.readAllStandardOutput())
                                   .split('\n', Qt::SkipEmptyParts);
-    cached = tags.contains(QStringLiteral("FROMREPONAME"), Qt::CaseInsensitive);
+    cached = tags.contains(QStringLiteral("repoid"), Qt::CaseInsensitive);
     return cached.value();
 }
 } // namespace
-
+**/
 
 
 /** Constructor */
@@ -164,42 +164,56 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
     QProcess proc;//* to run rpm -qa */
     //proc.setProcessChannelMode(QProcess::SeparateChannels); //* we want to read stdout and stderr separately */
     QStringList args;
-    const bool hasRepoTag = rpmSupportsFromRepoTag();
-    const QString repoField = hasRepoTag ? QString::fromLatin1("\x1F%{FROMREPONAME}")
-                                         : QString::fromLatin1("\x1F");
-    args << "-qa"
+    //const bool hasRepoTag = rpmSupportsFromRepoTag();
+    //const QString repoField = hasRepoTag ? QString::fromLatin1("\x1F%{repoid}")
+   //                                      : QString::fromLatin1("\x1F");
+    /*args << "-qa"
          << "--qf"
          << QString::fromLatin1("%{NAME}\x1F%{VERSION}-%{RELEASE}\x1F%{ARCH}\x1F%{INSTALLTIME:date}\x1F%{GROUP}\x1F%{SIZE}")
-                + repoField
-                + QString::fromLatin1("\x1F%{SUMMARY}\n");
+                //+ repoField
+                + QString::fromLatin1("\x1F%{SUMMARY}\n");*/
+    //Better to use DNF to get more accurate info about installed packages
+    const QString queryFormat = QStringLiteral(
+        "%{NAME}\x1F"
+        "%{VERSION}-%{RELEASE}\x1F"
+        "%{ARCH}\x1F"
+        "%{INSTALLTIME:date}\x1F"
+        "%{GROUP}\x1F"
+        "%{SIZE}\x1F"
+        "%{from_repo}\x1F"
+        "%{SUMMARY}\n");
 
-    /**rpm might not start so we set a timeout */
-    proc.start("rpm", args);
+    args << "repoquery"
+         << "--installed"
+         << "--qf"
+         << queryFormat;
+    /**dnf might not start so we set a timeout */
+    proc.start("dnf", args);
     if (!proc.waitForStarted(5000)) { // 5 s timeout
         QMessageBox::warning(nullptr, tr("Error"),
-                             tr("Failed to start rpm process."));
+                             tr("Failed to start dnf process."));
         return result;
     }
     /** rpm might be slow or hang, so we set a timeout */
     if (!proc.waitForFinished(60000)) { // 60 s timeout
         QMessageBox::warning(nullptr, tr("Error"),
-                             tr("Timed out while running rpm -qa"));
+                             tr("Timed out while running dnf"));
         return result;
     }
 
     
     if (proc.exitStatus() != QProcess::NormalExit) {
         QMessageBox::warning(nullptr, tr("Error"),
-                             tr("rpm -qa crashed while running."));
+                             tr("dnf crashed while running."));
         return result;
     }
 
     const QByteArray out = proc.readAllStandardOutput(); //* read stdout  into QByteArray */
     const QByteArray err = proc.readAllStandardError();  //* read stderr into QByteArray */
     #ifdef QT_DEBUG
-    qDebug() << "rpm -qa output bytes:" << out.size() << "stderr bytes:" << err.size();
+    qDebug() << "dnf repoquery output bytes:" << out.size() << "stderr bytes:" << err.size();
     if (!err.isEmpty())
-        qDebug() << "rpm -qa stderr:" << err;
+        qDebug() << "dnf repoquery stderr:" << err;
     #endif
 
     QString data = QString::fromLocal8Bit(out);
@@ -229,7 +243,7 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
         pkg.summary = fields.value(7);
 
         #ifdef QT_DEBUG
-        qDebug() << "Parsed rpm line" << lineIndex << "fields" << fields;
+        qDebug() << "Parsed dnf line" << lineIndex << "fields" << fields;
         #endif
 
         if (pkg.name.isEmpty()) {

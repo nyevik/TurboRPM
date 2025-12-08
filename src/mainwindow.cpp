@@ -28,7 +28,12 @@
 #include<QThreadStorage> //* for thread local storage */
 #include <QThread> //* for QThread */
 #include <QTextStream>
-#include <optional>
+#include <QScreen>
+#include <QScrollBar>
+#include <QStyle>
+
+
+#include <iostream>
 
 /**namespace {
 bool rpmSupportsFromRepoTag()
@@ -148,6 +153,27 @@ void MainWindow::refreshPackages()
     QVector<PackageInfo> pkgs = queryInstalledPackages();
     m_model->setPackages(pkgs);
     m_tableView->resizeColumnsToContents();
+
+    const auto *screen = QGuiApplication::primaryScreen();
+    const QRect available = screen ? screen->availableGeometry() : QRect();
+
+    const int scrollbarWidth = m_tableView->verticalScrollBar()->isVisible()
+                                   ? m_tableView->verticalScrollBar()->sizeHint().width()
+                                   : m_tableView->style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+    const int preferredWidth = m_tableView->horizontalHeader()->length()
+                               + m_tableView->verticalHeader()->width()
+                               + scrollbarWidth
+                               + (m_tableView->frameWidth() * 2)
+                               + 40; // extra padding for layout margins
+
+    const int maxWidth = available.isValid() ? available.width() - 20 : preferredWidth;
+    const int finalWidth = qMin(qMax(preferredWidth, 700), maxWidth);
+
+    const int preferredHeight = qMax(height(), 600);
+    const int maxHeight = available.isValid() ? available.height() - 20 : preferredHeight;
+    const int finalHeight = qMin(preferredHeight, maxHeight);
+
+    resize(finalWidth, finalHeight);
 }
 
 void MainWindow::onSearchTextChanged(const QString &text)
@@ -174,13 +200,13 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
                 + QString::fromLatin1("\x1F%{SUMMARY}\n");*/
     //Better to use DNF to get more accurate info about installed packages
     const QString queryFormat = QStringLiteral(
-        "%{NAME}\x1F"
+        "%{NAME}\x1F" // rpm package name
         "%{VERSION}-%{RELEASE}\x1F"
         "%{ARCH}\x1F"
-        "%{INSTALLTIME:date}\x1F"
+        "%{INSTALLTIME}\x1F"
         "%{GROUP}\x1F"
-        "%{SIZE}\x1F"
-        "%{from_repo}\x1F"
+        "%{SIZE}\x1F" //size in bytes
+        "%{from_repo}\x1F" //attempt to resolve what repo this package is coming from
         "%{SUMMARY}\n");
 
     args << "repoquery"
@@ -211,6 +237,20 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
     const QByteArray out = proc.readAllStandardOutput(); //* read stdout  into QByteArray */
     const QByteArray err = proc.readAllStandardError();  //* read stderr into QByteArray */
     #ifdef QT_DEBUG
+
+    std::unique_ptr<QDebug> uni_qdebugobj_ptr = std::make_unique<QDebug>(QtDebugMsg);
+    QDebug *raw_qdebugobj_ptr = uni_qdebugobj_ptr.get(); //raw pointer for easier use below
+
+    std::cout << "QDebug verbosity from  uni_qdebugobj_ptr" << uni_qdebugobj_ptr->verbosity() << std::endl;
+
+    std::cout << "QDebug verbosity from raw_qdebugobj_ptr" << raw_qdebugobj_ptr->verbosity() << std::endl;
+   
+    QDebug dbg(QtDebugMsg);//on stack
+    
+    dbg.setVerbosity(QDebug::MaximumVerbosity);
+    dbg << "some message\n";
+    std::cout << "QDebug verbosity from dbg object" << dbg.verbosity() << std::endl;
+    
     qDebug() << "dnf repoquery output bytes:" << out.size() << "stderr bytes:" << err.size();
     if (!err.isEmpty())
         qDebug() << "dnf repoquery stderr:" << err;
@@ -224,7 +264,7 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
     while (stream.readLineInto(&line)) {
         if (line.isEmpty()) {
             #ifdef QT_DEBUG
-            qDebug() << "Skipping empty line at index" << lineIndex;
+            //qDebug() << "Skipping empty line at index" << lineIndex;
             #endif
             ++lineIndex;
             continue;
@@ -243,7 +283,7 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
         pkg.summary = fields.value(7);
 
         #ifdef QT_DEBUG
-        qDebug() << "Parsed dnf line" << lineIndex << "fields" << fields;
+        //qDebug() << "Parsed dnf line" << lineIndex << "fields" << fields;
         #endif
 
         if (pkg.name.isEmpty()) {

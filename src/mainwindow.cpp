@@ -22,7 +22,6 @@
 #include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QTableView>
-#include <QMenu>
 #include <QVBoxLayout>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -35,7 +34,6 @@
 #include <QDateTime>
 #include <QTimeZone>
 #include <QSet>
-#include <QItemSelectionModel>
 
 #include <iostream>
 #include <chrono>
@@ -99,7 +97,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_tableView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_tableView->setSortingEnabled(true);
     m_tableView->horizontalHeader()->setStretchLastSection(true);
-    m_tableView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     mainLayout->addWidget(m_tableView);
 
@@ -135,8 +132,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_btnPkgFiles, &QPushButton::clicked, this, &MainWindow::onShowPackageFiles);
     connect(m_btnPkgDesc, &QPushButton::clicked, this, &MainWindow::onShowPackageDescription);
     connect(m_btnWhatProvides, &QPushButton::clicked, this, &MainWindow::onWhatProvides);
-    connect(m_tableView, &QTableView::customContextMenuRequested,
-            this, &MainWindow::onTableContextMenu);
 
     // Initial load
     refreshPackages();
@@ -395,127 +390,6 @@ void MainWindow::showTextDialog(const QString &title, const QString &text) const
     layout->addWidget(buttons);
 
     dlg.exec();
-}
-
-void MainWindow::onTableContextMenu(const QPoint &pos)
-{
-    const QModelIndex proxyIndex = m_tableView->indexAt(pos);
-    if (!proxyIndex.isValid())
-        return;
-
-    const QModelIndex sourceIndex = m_proxy->mapToSource(proxyIndex);
-    if (!sourceIndex.isValid())
-        return;
-
-    m_lastContextSourceIndex = sourceIndex;
-    m_tableView->selectionModel()->setCurrentIndex(proxyIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
-
-    QMenu menu(this);
-    switch (sourceIndex.column()) {
-    case PackageTableModel::NameColumn: {
-        QAction *moreInfo = menu.addAction(tr("Get more information"));
-        QAction *checkUpdates = menu.addAction(tr("Check for updates"));
-        connect(moreInfo, &QAction::triggered, this, &MainWindow::onNameGetMoreInfo);
-        connect(checkUpdates, &QAction::triggered, this, &MainWindow::onNameCheckUpdates);
-        break;
-    }
-    case PackageTableModel::SizeColumn: {
-        QAction *toKB = menu.addAction(tr("Convert to KB"));
-        QAction *toMB = menu.addAction(tr("Convert to MB"));
-        QAction *toGB = menu.addAction(tr("Convert to GB"));
-        connect(toKB, &QAction::triggered, this, &MainWindow::onConvertSizeToKB);
-        connect(toMB, &QAction::triggered, this, &MainWindow::onConvertSizeToMB);
-        connect(toGB, &QAction::triggered, this, &MainWindow::onConvertSizeToGB);
-        break;
-    }
-    default: {
-        QAction *noActions = menu.addAction(tr("No actions for this column yet"));
-        noActions->setEnabled(false);
-        break;
-    }
-    }
-
-    menu.exec(m_tableView->viewport()->mapToGlobal(pos));
-}
-
-void MainWindow::onNameGetMoreInfo()
-{
-    const PackageInfo pkg = packageFromSourceIndex(m_lastContextSourceIndex);
-    if (pkg.name.isEmpty())
-        return;
-    QMessageBox::information(this, tr("Package info placeholder"),
-                             tr("Placeholder for more info about %1.").arg(pkg.name));
-}
-
-void MainWindow::onNameCheckUpdates()
-{
-    const PackageInfo pkg = packageFromSourceIndex(m_lastContextSourceIndex);
-    if (pkg.name.isEmpty())
-        return;
-    QMessageBox::information(this, tr("Check updates placeholder"),
-                             tr("Would check updates for %1.").arg(pkg.name));
-}
-
-void MainWindow::onConvertSizeToKB()
-{
-    const qint64 sizeBytes = parseSizeBytes(packageFromSourceIndex(m_lastContextSourceIndex).size);
-    if (sizeBytes < 0)
-        return;
-    showSizeConversionResult(tr("KB"), static_cast<double>(sizeBytes) / 1024.0);
-}
-
-void MainWindow::onConvertSizeToMB()
-{
-    const qint64 sizeBytes = parseSizeBytes(packageFromSourceIndex(m_lastContextSourceIndex).size);
-    if (sizeBytes < 0)
-        return;
-    showSizeConversionResult(tr("MB"), static_cast<double>(sizeBytes) / (1024.0 * 1024.0));
-}
-
-void MainWindow::onConvertSizeToGB()
-{
-    const qint64 sizeBytes = parseSizeBytes(packageFromSourceIndex(m_lastContextSourceIndex).size);
-    if (sizeBytes < 0)
-        return;
-    showSizeConversionResult(tr("GB"), static_cast<double>(sizeBytes) / (1024.0 * 1024.0 * 1024.0));
-}
-
-PackageInfo MainWindow::packageFromSourceIndex(const QModelIndex &sourceIndex) const
-{
-    if (!sourceIndex.isValid())
-        return {};
-    return m_model->packageAt(sourceIndex.row());
-}
-
-void MainWindow::showSizeConversionResult(const QString &unit, double value) const
-{
-    QMessageBox::information(const_cast<MainWindow*>(this), tr("Size conversion"),
-                             tr("Converted size: %1 %2").arg(value, 0, 'f', 2).arg(unit));
-}
-
-qint64 MainWindow::parseSizeBytes(const QString &sizeText) const
-{
-    QString normalized = sizeText.trimmed();
-    if (normalized.isEmpty()) {
-        QMessageBox::warning(const_cast<MainWindow*>(this), tr("No size"), tr("No size information available."));
-        return -1;
-    }
-
-    QString digitsOnly;
-    digitsOnly.reserve(normalized.size());
-    for (QChar ch : normalized) {
-        if (ch.isDigit())
-            digitsOnly.append(ch);
-    }
-
-    bool ok = false;
-    const qint64 value = digitsOnly.toLongLong(&ok);
-    if (!ok) {
-        QMessageBox::warning(const_cast<MainWindow*>(this), tr("Invalid size"),
-                             tr("Could not parse size value: %1").arg(sizeText));
-        return -1;
-    }
-    return value;
 }
 
 PackageInfo MainWindow::currentSelectedPackage() const

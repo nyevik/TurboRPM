@@ -8,6 +8,8 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QModelIndex>
+#include <QPoint>
 #include <QVector>
 
 class QLineEdit;
@@ -33,6 +35,14 @@ private slots:
     void onShowPackageFiles();
     void onShowPackageDescription();
     void onWhatProvides();
+    void onTableContextMenu(const QPoint &pos);
+
+    // Context menu actions
+    void onNameGetMoreInfo();
+    void onNameCheckUpdates();
+    void onConvertSizeToKB();
+    void onConvertSizeToMB();
+    void onConvertSizeToGB();
 
 private:
     QVector<PackageInfo> queryInstalledPackages() const;
@@ -52,4 +62,10 @@ private:
 
     PackageTableModel *m_model = nullptr;
     QSortFilterProxyModel *m_proxy = nullptr;
+
+    QModelIndex m_lastContextSourceIndex;
+
+    PackageInfo packageFromSourceIndex(const QModelIndex &sourceIndex) const;
+    void showSizeConversionResult(const QString &unit, double value) const;
+    qint64 parseSizeBytes(const QString &sizeText) const;
 };

@@ -22,6 +22,7 @@ struct PackageInfo {
     QString installDate; /** Human-readable install date */
     QString group; /** DNF/RPM group (e.g., Development) */
     QString size; /** Size on disk (as reported by rpm) */
+    qint64 sizeBytes = -1; /** Raw size in bytes for conversions */
     QString repo; /** Repository name rpm says it came from */
     QString summary; /** Package summary description */
 };
@@ -52,6 +53,7 @@ public:
 
     void setPackages(const QVector<PackageInfo> &pkgs);
     PackageInfo packageAt(int row) const;
+    void updateSizeDisplay(int row, const QString &displayValue);
 
 private:
     QVector<PackageInfo> m_pkgs;

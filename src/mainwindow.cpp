@@ -22,6 +22,7 @@
 #include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QTableView>
+#include <QMenu>
 #include <QVBoxLayout>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -34,6 +35,7 @@
 #include <QDateTime>
 #include <QTimeZone>
 #include <QSet>
+#include <QItemSelectionModel>
 
 #include <iostream>
 #include <chrono>
@@ -46,6 +48,52 @@ namespace {
     constexpr int WaitForFinishedTimeoutMs {60000};  // 60 s
 }
 
+namespace {
+QString formatSizeValue(qint64 bytes, SizeUnit unit)
+{
+    if (bytes < 0)
+        return QObject::tr("N/A");
+
+    double value = static_cast<double>(bytes);
+    QString unitLabel;
+
+    switch (unit) {
+    case SizeUnit::Kilobytes:
+        value /= 1024.0;
+        unitLabel = QObject::tr("KB");
+        break;
+    case SizeUnit::Megabytes:
+        value /= (1024.0 * 1024.0);
+        unitLabel = QObject::tr("MB");
+        break;
+    }
+
+    return QObject::tr("%1 %2").arg(value, 0, 'f', 2).arg(unitLabel);
+}
+} // namespace
+
+class SizeConversionWorker : public QObject
+{
+    Q_OBJECT
+public:
+    explicit SizeConversionWorker(QObject *parent = nullptr) : QObject(parent) {}
+
+signals:
+    void conversionDone(const QStringList &results);
+
+public slots:
+    void perform(QVector<qint64> bytes, SizeUnit unit)
+    {
+        QStringList results;
+        results.reserve(bytes.size());
+
+        for (qint64 b : bytes) {
+            results.append(formatSizeValue(b, unit));
+        }
+
+        emit conversionDone(results);
+    }
+};
 
 /** Constructor */
 MainWindow::MainWindow(QWidget *parent)
@@ -97,6 +145,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_tableView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_tableView->setSortingEnabled(true);
     m_tableView->horizontalHeader()->setStretchLastSection(true);
+    m_tableView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     mainLayout->addWidget(m_tableView);
 
@@ -132,6 +181,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_btnPkgFiles, &QPushButton::clicked, this, &MainWindow::onShowPackageFiles);
     connect(m_btnPkgDesc, &QPushButton::clicked, this, &MainWindow::onShowPackageDescription);
     connect(m_btnWhatProvides, &QPushButton::clicked, this, &MainWindow::onWhatProvides);
+    connect(m_tableView, &QTableView::customContextMenuRequested,
+            this, &MainWindow::onTableContextMenu);
 
     // Initial load
     refreshPackages();
@@ -332,11 +383,13 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
         // SIZE: keep original string, but sanity-check that it's numeric
         const QString sizeField = fields.value(5).trimmed();
         bool okSize = false;
-        (void)sizeField.toLongLong(&okSize);
+        const qint64 parsedSize = sizeField.toLongLong(&okSize);
         if (okSize) {
             pkg.size = sizeField;
+            pkg.sizeBytes = parsedSize;
         } else {
             pkg.size.clear(); // treat nonsense size as "unknown"
+            pkg.sizeBytes = -1;
         }
 
         #ifdef QT_DEBUG
@@ -390,6 +443,117 @@ void MainWindow::showTextDialog(const QString &title, const QString &text) const
     layout->addWidget(buttons);
 
     dlg.exec();
+}
+
+void MainWindow::onTableContextMenu(const QPoint &pos)
+{
+    const QModelIndex proxyIndex = m_tableView->indexAt(pos);
+    if (!proxyIndex.isValid())
+        return;
+
+    const QModelIndex sourceIndex = m_proxy->mapToSource(proxyIndex);
+    if (!sourceIndex.isValid())
+        return;
+
+    m_lastContextSourceIndex = sourceIndex;
+    m_tableView->selectionModel()->setCurrentIndex(proxyIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+
+    QMenu menu(this);
+    switch (sourceIndex.column()) {
+    case PackageTableModel::NameColumn: {
+        QAction *moreInfo = menu.addAction(tr("Get more information"));
+        QAction *checkUpdates = menu.addAction(tr("Check for updates"));
+        connect(moreInfo, &QAction::triggered, this, &MainWindow::onNameGetMoreInfo);
+        connect(checkUpdates, &QAction::triggered, this, &MainWindow::onNameCheckUpdates);
+        break;
+    }
+    case PackageTableModel::SizeColumn: {
+        QAction *toKB = menu.addAction(tr("Convert Size column to KB"));
+        QAction *toMB = menu.addAction(tr("Convert Size column to MB"));
+        connect(toKB, &QAction::triggered, this, &MainWindow::onConvertSizeToKB);
+        connect(toMB, &QAction::triggered, this, &MainWindow::onConvertSizeToMB);
+        break;
+    }
+    default: {
+        QAction *noActions = menu.addAction(tr("No actions for this column yet"));
+        noActions->setEnabled(false);
+        break;
+    }
+    }
+
+    menu.exec(m_tableView->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::onNameGetMoreInfo()
+{
+    const PackageInfo pkg = packageFromSourceIndex(m_lastContextSourceIndex);
+    if (pkg.name.isEmpty())
+        return;
+    QMessageBox::information(this, tr("Package info placeholder"),
+                             tr("Placeholder for more info about %1.").arg(pkg.name));
+}
+
+void MainWindow::onNameCheckUpdates()
+{
+    const PackageInfo pkg = packageFromSourceIndex(m_lastContextSourceIndex);
+    if (pkg.name.isEmpty())
+        return;
+    QMessageBox::information(this, tr("Check updates placeholder"),
+                             tr("Would check updates for %1.").arg(pkg.name));
+}
+
+void MainWindow::onConvertSizeToKB()
+{
+    startColumnConversion(SizeUnit::Kilobytes);
+}
+
+void MainWindow::onConvertSizeToMB()
+{
+    startColumnConversion(SizeUnit::Megabytes);
+}
+
+PackageInfo MainWindow::packageFromSourceIndex(const QModelIndex &sourceIndex) const
+{
+    if (!sourceIndex.isValid())
+        return {};
+    return m_model->packageAt(sourceIndex.row());
+}
+
+void MainWindow::startColumnConversion(SizeUnit unit)
+{
+    const int rows = m_model->rowCount();
+    if (rows <= 0)
+        return;
+
+    QVector<qint64> bytes;
+    bytes.reserve(rows);
+    for (int i = 0; i < rows; ++i) {
+        const PackageInfo pkg = m_model->packageAt(i);
+        bytes.push_back(pkg.sizeBytes);
+    }
+
+    auto *worker = new SizeConversionWorker;
+    auto *thread = new QThread(this);
+    worker->moveToThread(thread);
+
+    connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+
+    connect(thread, &QThread::started, worker, [worker, bytes, unit]() {
+        worker->perform(bytes, unit);
+    });
+
+    connect(worker, &SizeConversionWorker::conversionDone, this,
+            [this, thread](const QStringList &results) {
+                const int count = qMin(results.size(), m_model->rowCount());
+                for (int i = 0; i < count; ++i) {
+                    m_model->updateSizeDisplay(i, results.at(i));
+                }
+                thread->quit();
+            },
+            Qt::QueuedConnection);
+
+    thread->start();
 }
 
 PackageInfo MainWindow::currentSelectedPackage() const
@@ -519,3 +683,5 @@ void MainWindow::onWhatProvides()
                         .arg(exitCode);
     showTextDialog(title, output);
 }
+
+#include "mainwindow.moc"

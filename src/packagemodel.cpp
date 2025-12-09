@@ -107,3 +107,13 @@ PackageInfo PackageTableModel::packageAt(int row) const
         return {};
     return m_pkgs[row];
 }
+
+void PackageTableModel::updateSizeDisplay(int row, const QString &displayValue)
+{
+    if (row < 0 || row >= m_pkgs.size())
+        return;
+
+    m_pkgs[row].size = displayValue;
+    const QModelIndex idx = index(row, SizeColumn);
+    emit dataChanged(idx, idx, {Qt::DisplayRole});
+}

@@ -6,9 +6,10 @@
     <file>src/icons/favicon-96x96.png</file>
     <file>src/icons/favicon.ico</file>
     <file>src/icons/web-app-manifest-192x192.png</file>
-    <file>src/icons/pixmaps/button-group.png</file>
-    <file>src/icons/pixmaps/button-install.png</file>
-    <file>src/icons/pixmaps/button-update.png</file>
-    <file>src/icons/pixmaps/button-remove.png</file>
+    <file>src/icons/yumex.png</file>
+    <file>src/icons/button-group.png</file>
+    <file>src/icons/button-install.png</file>
+    <file>src/icons/button-remove.png</file>
+    <file>src/icons/button-update.png</file>
   </qresource>
 </RCC>

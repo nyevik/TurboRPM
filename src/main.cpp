@@ -16,7 +16,7 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QApplication::setApplicationDisplayName("TurboRPM Package Manager Prototype");
-    const QIcon appIcon(":/src/icons/app-icon-512x512.png");
+    const QIcon appIcon(":/src/icons/yumex.png");
     QApplication::setWindowIcon(appIcon);
     QApplication::setQuitOnLastWindowClosed(true);
     QCoreApplication::setApplicationName("TurboRPM");
@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
 
     #ifdef QT_DEBUG
     qDebug() << "Icon exists?"
-         << QFile(":/src/icons/app-icon-512x512.png").exists();
+         << QFile(":/src/icons/yumex.png").exists();
     
 
     qDebug() << "Icon isNull?"
@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
     #endif
     
     MainWindow w;
-    w.setAcceptDrops(true);
+    w.setAcceptDrops(true); //obscured by central widget and QTableView, JIC.
     w.show();
 
     return app.exec();

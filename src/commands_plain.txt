@@ -1,0 +1,2 @@
+sudo dnf repoquery --installed --qf  "%{name}\x1F%{version}-%{release}\x1F%{arch}\x1F%{installtime}\x1F%{group}\x1F%{size}\x1F%{from_repo}\x1F"
+

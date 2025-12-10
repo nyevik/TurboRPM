@@ -16,6 +16,9 @@ class QLineEdit;
 class QTableView;
 class QSortFilterProxyModel;
 class QPushButton;
+class QFrame;
+class QLabel;
+class QEvent;
 
 #include "packagemodel.h"
 
@@ -29,6 +32,9 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void refreshPackages();
@@ -40,6 +46,7 @@ private slots:
     void onShowPackageFiles();
     void onShowPackageDescription();
     void onWhatProvides();
+    void onWhatProvidesDnD();
     void onTableContextMenu(const QPoint &pos);
 
     // Context menu actions
@@ -64,6 +71,9 @@ private:
     QPushButton *m_btnPkgFiles = nullptr;
     QPushButton *m_btnPkgDesc = nullptr;
     QPushButton *m_btnWhatProvides = nullptr;
+    QPushButton *m_btnWhatProvidesDnD  = nullptr;
+    QFrame *m_dropArea = nullptr;
+    QLabel *m_dropLabel = nullptr;
 
     PackageTableModel *m_model = nullptr;
     QSortFilterProxyModel *m_proxy = nullptr;
@@ -71,4 +81,5 @@ private:
     QModelIndex m_lastContextSourceIndex;
 
     PackageInfo packageFromSourceIndex(const QModelIndex &sourceIndex) const;
+    void handleWhatProvidesPaths(const QStringList &paths, const QString &sourceLabel);
 };

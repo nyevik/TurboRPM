@@ -11,6 +11,7 @@
 
 #include <QHeaderView>
 #include <QApplication>
+#include <QEvent>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QFileDialog>
@@ -36,9 +37,18 @@
 #include <QTimeZone>
 #include <QSet>
 #include <QItemSelectionModel>
+#include <QMimeData>
+#include <QUrl>
+#include <QFileInfo>
+#include <QFrame>
+#include <QLabel>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 
 #include <iostream>
 #include <chrono>
+#include <algorithm>
 
 //using Milliseconds = std::chrono::milliseconds;
 
@@ -47,7 +57,6 @@ namespace {
     constexpr int WaitForStartedTimeoutMs {5000};   // 5 s
     constexpr int WaitForFinishedTimeoutMs {60000};  // 60 s
 }
-
 namespace {
 QString formatSizeValue(qint64 bytes, SizeUnit unit)
 {
@@ -70,8 +79,35 @@ QString formatSizeValue(qint64 bytes, SizeUnit unit)
 
     return QObject::tr("%1 %2").arg(value, 0, 'f', 2).arg(unitLabel);
 }
+
+bool mimeHasLocalUrls(const QMimeData *mimeData)
+{
+    if (!mimeData || !mimeData->hasUrls())
+        return false;
+
+    const auto urls = mimeData->urls();
+    return std::any_of(urls.cbegin(), urls.cend(), [](const QUrl &url) {
+        return url.isLocalFile();
+    });
+}
+
+QStringList extractLocalPaths(const QMimeData *mimeData)
+{
+    QStringList paths;
+    if (!mimeData)
+        return paths;
+
+    for (const QUrl &url : mimeData->urls()) {
+        if (url.isLocalFile()) {
+            QFileInfo info(url.toLocalFile());
+            paths << info.absoluteFilePath();
+        }
+    }
+    return paths;
+}
 } // namespace
 
+/** Runs in a QThread */
 class SizeConversionWorker : public QObject
 {
     Q_OBJECT
@@ -99,10 +135,15 @@ public slots:
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(QStringLiteral("TurboRPM (Prototype)"));
+    setWindowTitle(QStringLiteral("TurboRPM Package Manager Prototype"));
     resize(900, 600);
+    setAcceptDrops(true);
 
+    // QMainWindow is completely covered by its central widget central here
     auto *central = new QWidget(this);
+    central->setObjectName(QStringLiteral("centralWidget"));
+    central->setAcceptDrops(true);
+    central->setStatusTip(QStringLiteral("USE YOUR MOUSE RIGHT BUTTON."));
     auto *mainLayout = new QVBoxLayout(central);
 
     /** Top bar: search + refresh */
@@ -140,6 +181,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_proxy->setFilterKeyColumn(PackageTableModel::NameColumn);
 
     m_tableView = new QTableView(central);
+
+    m_tableView->setObjectName(QStringLiteral("packageTableView"));
+    m_tableView->setAcceptDrops(true);
+    m_tableView->setDragEnabled(true);
+    m_tableView->setDragDropMode(QAbstractItemView::DragDrop);
+    m_tableView->setDropIndicatorShown(true);
+    m_tableView->setDefaultDropAction(Qt::MoveAction);
+
     m_tableView->setModel(m_proxy);
     m_tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableView->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -158,6 +207,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_btnPkgFiles = new QPushButton(QStringLiteral("Files in selected pkg"), central);
     m_btnPkgDesc = new QPushButton(QStringLiteral("Description of selected pkg"), central);
     m_btnWhatProvides = new QPushButton(QStringLiteral("What provides file..."), central);
+    m_btnWhatProvidesDnD = new QPushButton(QStringLiteral("What rpm provides file by DnD "), central);
 
     bottomLayout->addWidget(m_btnCheckUpdate);
     bottomLayout->addWidget(m_btnInstall);
@@ -165,9 +215,27 @@ MainWindow::MainWindow(QWidget *parent)
     bottomLayout->addWidget(m_btnPkgFiles);
     bottomLayout->addWidget(m_btnPkgDesc);
     bottomLayout->addWidget(m_btnWhatProvides);
+    bottomLayout->addWidget(m_btnWhatProvidesDnD);
     bottomLayout->addStretch();
 
     mainLayout->addLayout(bottomLayout);
+
+    m_dropArea = new QFrame(central);
+    m_dropArea->setFrameShape(QFrame::StyledPanel);
+    m_dropArea->setFrameShadow(QFrame::Sunken);
+    m_dropArea->setMinimumHeight(80);
+    m_dropArea->setAcceptDrops(true);
+    m_dropArea->setToolTip(tr("Drop a file or directory to run rpm -qf"));
+    auto *dropLayout = new QVBoxLayout(m_dropArea);
+    dropLayout->setContentsMargins(8, 8, 8, 8);
+
+    m_dropLabel = new QLabel(tr("Drag a file or directory here to see which RPM provides it.\nMultiple items are supported."), m_dropArea);
+    m_dropLabel->setAlignment(Qt::AlignCenter);
+    m_dropLabel->setWordWrap(true);
+    dropLayout->addWidget(m_dropLabel);
+
+    m_dropArea->installEventFilter(this);
+    mainLayout->addWidget(m_dropArea);
 
     setCentralWidget(central);
 
@@ -181,6 +249,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_btnPkgFiles, &QPushButton::clicked, this, &MainWindow::onShowPackageFiles);
     connect(m_btnPkgDesc, &QPushButton::clicked, this, &MainWindow::onShowPackageDescription);
     connect(m_btnWhatProvides, &QPushButton::clicked, this, &MainWindow::onWhatProvides);
+    connect(m_btnWhatProvidesDnD, &QPushButton::clicked, this, &MainWindow::onWhatProvidesDnD);
     connect(m_tableView, &QTableView::customContextMenuRequested,
             this, &MainWindow::onTableContextMenu);
 
@@ -192,6 +261,8 @@ void MainWindow::refreshPackages()
 {
     QVector<PackageInfo> pkgs = queryInstalledPackages();
     m_model->setPackages(pkgs);
+
+    /** Table should be resized to show all contents */
     m_tableView->resizeColumnsToContents();
 
     const auto *screen = QGuiApplication::primaryScreen();
@@ -622,6 +693,44 @@ void MainWindow::onRemovePackage()
         refreshPackages();
 }
 
+void MainWindow::handleWhatProvidesPaths(const QStringList &paths, const QString &sourceLabel)
+{
+    QStringList results;
+
+    for (const QString &path : paths) {
+        const QString trimmed = path.trimmed();
+        if (trimmed.isEmpty())
+            continue;
+
+        QFileInfo info(trimmed);
+        if (!info.exists()) {
+            results << tr("%1\nNot found on disk.").arg(trimmed);
+            continue;
+        }
+
+        const QString absolutePath = info.absoluteFilePath();
+        int exitCode = 0;
+        QString output = runCommand("rpm", {"-qf", absolutePath}, exitCode);
+        QString formattedOutput = output.trimmed();
+        if (formattedOutput.isEmpty())
+            formattedOutput = output;
+
+        results << tr("rpm -qf %1 (exit %2)\n%3")
+                   .arg(absolutePath)
+                   .arg(exitCode)
+                   .arg(formattedOutput);
+    }
+
+    if (results.isEmpty()) {
+        QMessageBox::information(this, tr("Nothing to query"),
+                                 tr("Drop or enter at least one file or directory path."));
+        return;
+    }
+
+    showTextDialog(tr("What provides (%1)").arg(sourceLabel),
+                   results.join(QStringLiteral("\n\n")));
+}
+
 void MainWindow::onShowPackageFiles()
 {
     PackageInfo pkg = currentSelectedPackage();
@@ -674,14 +783,75 @@ void MainWindow::onWhatProvides()
             return;
     }
 
-    const QString trimmedPath = path.trimmed();
-    int exitCode = 0;
-    QString output = runCommand("rpm", {"-qf", trimmedPath}, exitCode);
+    handleWhatProvidesPaths({path.trimmed()}, tr("Manual selection"));
+}
+void MainWindow::onWhatProvidesDnD()
+{
+    QMessageBox::information(this, tr("Drag and drop"),
+                             tr("Drag a file or directory from your file manager onto the drop zone below to run \"rpm -qf\". "
+                                "Dropping multiple items is supported."));
+}
 
-    QString title = tr("rpm -qf %1 (exit %2)")
-                        .arg(trimmedPath)
-                        .arg(exitCode);
-    showTextDialog(title, output);
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
+    if (mimeHasLocalUrls(event->mimeData())) {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
+}
+
+void MainWindow::dropEvent(QDropEvent *event) {
+    if (!mimeHasLocalUrls(event->mimeData())) {
+        event->ignore();
+        return;
+    }
+
+    handleWhatProvidesPaths(extractLocalPaths(event->mimeData()),
+                            tr("Drop on window"));
+    event->acceptProposedAction();
+
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_dropArea) {
+        switch (event->type()) {
+        case QEvent::DragEnter: {
+            auto *dragEvent = static_cast<QDragEnterEvent*>(event);
+            if (mimeHasLocalUrls(dragEvent->mimeData())) {
+                dragEvent->acceptProposedAction();
+            } else {
+                dragEvent->ignore();
+            }
+            return true;
+        }
+        case QEvent::DragMove: {
+            auto *dragEvent = static_cast<QDragMoveEvent*>(event);
+            if (mimeHasLocalUrls(dragEvent->mimeData())) {
+                dragEvent->acceptProposedAction();
+            } else {
+                dragEvent->ignore();
+            }
+            return true;
+        }
+        case QEvent::Drop: {
+            auto *dropEvent = static_cast<QDropEvent*>(event);
+            if (mimeHasLocalUrls(dropEvent->mimeData())) {
+                handleWhatProvidesPaths(extractLocalPaths(dropEvent->mimeData()),
+                                        tr("Drop zone"));
+                dropEvent->acceptProposedAction();
+            } else {
+                dropEvent->ignore();
+            }
+            return true;
+        }
+        default:
+            break;
+        }
+    }
+
+    return QMainWindow::eventFilter(watched, event);
 }
 
 #include "mainwindow.moc"

@@ -45,6 +45,10 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QStandardItemModel>
+#include <QMetaType>
+#include <QDesktopServices>
+#include <QBrush>
 
 #include <iostream>
 #include <chrono>
@@ -107,6 +111,101 @@ QStringList extractLocalPaths(const QMimeData *mimeData)
 }
 } // namespace
 
+using InfoRow = QPair<QString, QString>;
+using InfoRows = QVector<InfoRow>;
+Q_DECLARE_METATYPE(InfoRows);
+
+static InfoRows parseRpmQueryOutput(const QString &output)
+{
+    InfoRows rows;
+    QString currentKey;
+    QStringList currentLines;
+    bool inDescription = false;
+    bool awaitingSignatureValue = false;
+    bool signatureStored = false;
+
+    auto commitCurrent = [&]() {
+        if (currentKey.isEmpty() || currentLines.isEmpty())
+            return;
+
+        const QString value = inDescription
+                                  ? currentLines.join(QStringLiteral("\n"))
+                                  : currentLines.join(QStringLiteral(" ")).trimmed();
+        rows.append(qMakePair(currentKey, value));
+
+        currentKey.clear();
+        currentLines.clear();
+        inDescription = false;
+        awaitingSignatureValue = false;
+    };
+
+    const QStringList lines = output.split(QLatin1Char('\n'));
+    for (const QString &rawLine : lines) {
+        const QString trimmed = rawLine.trimmed();
+
+        if (inDescription) {
+            currentLines.append(rawLine);
+            continue;
+        }
+
+        if (awaitingSignatureValue) {
+            if (!trimmed.isEmpty()) {
+                currentLines.append(trimmed);
+                commitCurrent();
+                signatureStored = true;
+            }
+            continue;
+        }
+
+        const int colonPos = rawLine.indexOf(QLatin1Char(':'));
+        if (colonPos <= 0)
+            continue;
+
+        commitCurrent();
+
+        const QString key = rawLine.left(colonPos).trimmed();
+        if (key.isEmpty())
+            continue;
+
+        const QString valuePart = rawLine.mid(colonPos + 1);
+        const QString trimmedValue = valuePart.trimmed();
+
+        if (key.compare(QStringLiteral("Description"), Qt::CaseInsensitive) == 0) {
+            currentKey = key;
+            currentLines.clear();
+            if (!trimmedValue.isEmpty())
+                currentLines.append(trimmedValue);
+            inDescription = true;
+            continue;
+        }
+
+        if (key.compare(QStringLiteral("Signature"), Qt::CaseInsensitive) == 0) {
+            if (signatureStored)
+                continue; // drop duplicates entirely
+
+            currentKey = key;
+            currentLines.clear();
+            if (!trimmedValue.isEmpty()) {
+                currentLines.append(trimmedValue);
+                commitCurrent();
+                signatureStored = true;
+            } else {
+                awaitingSignatureValue = true;
+            }
+            continue;
+        }
+
+        currentKey = key;
+        currentLines.clear();
+        if (!trimmedValue.isEmpty())
+            currentLines.append(trimmedValue);
+        commitCurrent();
+    }
+
+    commitCurrent();
+    return rows;
+}
+
 /** Runs in a QThread */
 class SizeConversionWorker : public QObject
 {
@@ -128,6 +227,64 @@ public slots:
         }
 
         emit conversionDone(results);
+    }
+};
+
+class RpmInfoWorker : public QObject
+{
+    Q_OBJECT
+public:
+    explicit RpmInfoWorker(QObject *parent = nullptr) : QObject(parent) {}
+
+signals:
+    void infoReady(const QString &pkgName, const InfoRows &fields);
+    void failed(const QString &pkgName, const QString &error);
+
+public slots:
+    void fetch(const QString &pkgName)
+    {
+        const QString trimmedName = pkgName.trimmed();
+        if (trimmedName.isEmpty()) {
+            emit failed(pkgName, tr("Package name is empty."));
+            return;
+        }
+
+        QProcess proc;
+        proc.setProcessChannelMode(QProcess::MergedChannels);
+        proc.start(QStringLiteral("rpm"), {QStringLiteral("-qi"), trimmedName});
+
+        if (!proc.waitForStarted(WaitForStartedTimeoutMs)) {
+            emit failed(trimmedName, tr("Failed to start rpm -qi."));
+            return;
+        }
+
+        if (!proc.waitForFinished(WaitForFinishedTimeoutMs)) {
+            proc.kill();
+            emit failed(trimmedName, tr("Timed out while running rpm -qi."));
+            return;
+        }
+
+        if (proc.exitStatus() != QProcess::NormalExit) {
+            emit failed(trimmedName, tr("rpm -qi crashed while running."));
+            return;
+        }
+
+        const int exitCode = proc.exitCode();
+        const QString output = QString::fromLocal8Bit(proc.readAll());
+
+        if (exitCode != 0) {
+            emit failed(trimmedName,
+                        tr("rpm -qi exited with %1.\n%2").arg(exitCode).arg(output.trimmed()));
+            return;
+        }
+
+        InfoRows rows = parseRpmQueryOutput(output);
+        if (rows.isEmpty()) {
+            emit failed(trimmedName, tr("No fields were parsed from rpm -qi output."));
+            return;
+        }
+
+        emit infoReady(trimmedName, rows);
     }
 };
 
@@ -516,6 +673,161 @@ void MainWindow::showTextDialog(const QString &title, const QString &text) const
     dlg.exec();
 }
 
+void MainWindow::showPackageInfoTable(const QString &pkgName,
+                                      const InfoRows &fields) const
+{
+    QDialog dlg(const_cast<MainWindow*>(this));
+    dlg.setWindowTitle(tr("Details for %1").arg(pkgName));
+
+    auto *layout = new QVBoxLayout(&dlg);
+
+    auto *view = new QTableView(&dlg);
+    auto *model = new QStandardItemModel(view);
+    model->setHorizontalHeaderLabels({tr("Field"), tr("Value")});
+    model->setColumnCount(2);
+
+    for (const auto &row : fields) {
+        const QString fieldName = row.first;
+        const QString valueText = row.second;
+
+        auto *fieldItem = new QStandardItem(fieldName);
+        auto *valueItem = new QStandardItem(valueText);
+
+        const bool isUrlField = fieldName.compare(QStringLiteral("URL"), Qt::CaseInsensitive) == 0
+                                && QUrl(valueText.trimmed(), QUrl::StrictMode).isValid();
+        const bool isSizeField = fieldName.compare(QStringLiteral("Size"), Qt::CaseInsensitive) == 0;
+
+        if (isUrlField) {
+            const QString urlString = QUrl(valueText.trimmed(), QUrl::StrictMode).toString();
+            valueItem->setData(urlString, Qt::UserRole + 2);
+            valueItem->setData(urlString, Qt::DisplayRole);
+            QFont linkFont = valueItem->font();
+            linkFont.setUnderline(true);
+            valueItem->setFont(linkFont);
+            valueItem->setForeground(QBrush(Qt::blue));
+            valueItem->setToolTip(tr("Double-click to open in browser."));
+        }
+
+        if (isSizeField) {
+            bool ok = false;
+            const qint64 bytes = valueText.trimmed().toLongLong(&ok);
+            if (ok) {
+                valueItem->setData(bytes, Qt::UserRole + 1);
+                valueItem->setToolTip(tr("Right-click for size conversions (bytes/KB/MB)."));
+            }
+        }
+
+        fieldItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        valueItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+
+        model->appendRow({fieldItem, valueItem});
+    }
+
+    view->setModel(model);
+    view->setWordWrap(true);
+    view->setTextElideMode(Qt::ElideNone);
+    view->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    view->horizontalHeader()->setSectionsClickable(true);
+    view->verticalHeader()->setVisible(false);
+    view->setSelectionBehavior(QAbstractItemView::SelectRows);
+    view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    view->setSortingEnabled(true);
+    view->sortByColumn(0, Qt::AscendingOrder);
+    view->setContextMenuPolicy(Qt::CustomContextMenu);
+    view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    view->resizeColumnsToContents();
+    view->resizeRowsToContents();
+
+    connect(view, &QTableView::doubleClicked, view,
+            [model](const QModelIndex &idx) {
+                const int row = idx.row();
+                if (row < 0)
+                    return;
+                const QModelIndex valueIndex = model->index(row, 1);
+                const QVariant urlData = model->data(valueIndex, Qt::UserRole + 2);
+                if (!urlData.isValid())
+                    return;
+                const QUrl url(urlData.toString());
+                if (url.isValid())
+                    QDesktopServices::openUrl(url);
+            });
+
+    connect(view, &QTableView::customContextMenuRequested, view,
+            [view, model](const QPoint &pos) {
+                const QModelIndex idx = view->indexAt(pos);
+                if (!idx.isValid())
+                    return;
+                const QModelIndex valueIndex = model->index(idx.row(), 1);
+                bool okSize = false;
+                const qint64 bytes = model->data(valueIndex, Qt::UserRole + 1).toLongLong(&okSize);
+                if (!okSize)
+                    return;
+
+                QMenu menu(view);
+                QAction *showBytes = menu.addAction(QObject::tr("Show bytes"));
+                QAction *toKB = menu.addAction(QObject::tr("Convert to KB"));
+                QAction *toMB = menu.addAction(QObject::tr("Convert to MB"));
+                QAction *chosen = menu.exec(view->viewport()->mapToGlobal(pos));
+                if (!chosen)
+                    return;
+
+                QString display;
+                if (chosen == showBytes) {
+                    display = QString::number(bytes);
+                } else if (chosen == toKB) {
+                    display = formatSizeValue(bytes, SizeUnit::Kilobytes);
+                } else {
+                    display = formatSizeValue(bytes, SizeUnit::Megabytes);
+                }
+                model->setData(valueIndex, display, Qt::DisplayRole);
+            });
+
+    layout->addWidget(view);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    layout->addWidget(buttons);
+
+    // Size dialog to table content while respecting available screen space
+    view->resizeColumnsToContents();
+    view->resizeRowsToContents();
+
+    const auto margins = layout->contentsMargins();
+    const int frameWidth = view->frameWidth() * 2;
+    const int scrollbarWidth = view->verticalScrollBar()->isVisible()
+                                   ? view->verticalScrollBar()->sizeHint().width()
+                                   : view->style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+    const int scrollbarHeight = view->horizontalScrollBar()->isVisible()
+                                    ? view->horizontalScrollBar()->sizeHint().height()
+                                    : view->style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+
+    int desiredWidth = view->verticalHeader()->width()
+                       + view->horizontalHeader()->length()
+                       + scrollbarWidth
+                       + frameWidth
+                       + margins.left() + margins.right();
+
+    int desiredHeight = view->horizontalHeader()->height()
+                        + view->verticalHeader()->length()
+                        + scrollbarHeight
+                        + frameWidth
+                        + margins.top() + margins.bottom()
+                        + buttons->sizeHint().height();
+
+    const auto *screen = QGuiApplication::primaryScreen();
+    const QRect available = screen ? screen->availableGeometry() : QRect();
+    if (available.isValid()) {
+        desiredWidth = qMin(desiredWidth + 20, available.width() - 40);
+        desiredHeight = qMin(desiredHeight + 40, available.height() - 80);
+    }
+
+    dlg.resize(desiredWidth, desiredHeight);
+    dlg.exec();
+}
+
 void MainWindow::onTableContextMenu(const QPoint &pos)
 {
     const QModelIndex proxyIndex = m_tableView->indexAt(pos);
@@ -532,7 +844,7 @@ void MainWindow::onTableContextMenu(const QPoint &pos)
     QMenu menu(this);
     switch (sourceIndex.column()) {
     case PackageTableModel::NameColumn: {
-        QAction *moreInfo = menu.addAction(tr("Get more information"));
+        QAction *moreInfo = menu.addAction(tr("Get more information about this package"));
         QAction *checkUpdates = menu.addAction(tr("Check for updates"));
         connect(moreInfo, &QAction::triggered, this, &MainWindow::onNameGetMoreInfo);
         connect(checkUpdates, &QAction::triggered, this, &MainWindow::onNameCheckUpdates);
@@ -558,10 +870,44 @@ void MainWindow::onTableContextMenu(const QPoint &pos)
 void MainWindow::onNameGetMoreInfo()
 {
     const PackageInfo pkg = packageFromSourceIndex(m_lastContextSourceIndex);
-    if (pkg.name.isEmpty())
+    const QString pkgName = pkg.name.trimmed();
+    if (pkgName.isEmpty()) {
+        QMessageBox::information(this, tr("No selection"),
+                                 tr("Select a package first."));
         return;
-    QMessageBox::information(this, tr("Package info placeholder"),
-                             tr("Placeholder for more info about %1.").arg(pkg.name));
+    }
+
+    qRegisterMetaType<InfoRows>("InfoRows");
+
+    auto *worker = new RpmInfoWorker;
+    auto *thread = new QThread(this);
+    worker->moveToThread(thread);
+
+    connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+
+    connect(thread, &QThread::started, worker, [worker, pkgName]() {
+        worker->fetch(pkgName);
+    });
+
+    connect(worker, &RpmInfoWorker::infoReady, this,
+            [this, thread](const QString &name, const InfoRows &fields) {
+                thread->quit();
+                showPackageInfoTable(name, fields);
+            },
+            Qt::QueuedConnection);
+
+    connect(worker, &RpmInfoWorker::failed, this,
+            [this, thread](const QString &name, const QString &error) {
+                thread->quit();
+                const QString title = name.isEmpty()
+                                          ? tr("rpm -qi failed")
+                                          : tr("rpm -qi %1").arg(name);
+                QMessageBox::warning(this, title, error);
+            },
+            Qt::QueuedConnection);
+
+    thread->start();
 }
 
 void MainWindow::onNameCheckUpdates()

@@ -11,6 +11,7 @@
 #include <QModelIndex>
 #include <QPoint>
 #include <QVector>
+#include <QPair>
 
 class QLineEdit;
 class QTableView;
@@ -59,6 +60,8 @@ private:
     QVector<PackageInfo> queryInstalledPackages() const;
     QString runCommand(const QString &program, const QStringList &arguments, int &exitCode) const;
     void showTextDialog(const QString &title, const QString &text) const;
+    void showPackageInfoTable(const QString &pkgName,
+                              const QVector<QPair<QString, QString>> &fields) const;
     PackageInfo currentSelectedPackage() const;
     void startColumnConversion(SizeUnit unit);
 

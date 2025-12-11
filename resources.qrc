@@ -11,5 +11,7 @@
     <file>src/icons/button-install.png</file>
     <file>src/icons/button-remove.png</file>
     <file>src/icons/button-update.png</file>
+    <file>src/icons/lock-closed.png</file>
+    <file>src/icons/lock-open.png</file>
   </qresource>
 </RCC>

@@ -49,6 +49,7 @@ private slots:
     void onWhatProvides();
     void onWhatProvidesDnD();
     void onTableContextMenu(const QPoint &pos);
+    void onAccessToggleRequested();
 
     // Context menu actions
     void onNameGetMoreInfo();
@@ -58,15 +59,22 @@ private slots:
 
 private:
     QVector<PackageInfo> queryInstalledPackages() const;
-    QString runCommand(const QString &program, const QStringList &arguments, int &exitCode) const;
     void showTextDialog(const QString &title, const QString &text) const;
     void showPackageInfoTable(const QString &pkgName,
                               const QVector<QPair<QString, QString>> &fields) const;
     PackageInfo currentSelectedPackage() const;
     void startColumnConversion(SizeUnit unit);
+    bool ensureAdminAccess();
+    void dropAdminAccess();
+    void updateAccessBanner();
+    bool isAdminActive() const;
 
     QLineEdit *m_searchEdit = nullptr;
     QTableView *m_tableView = nullptr;
+    QFrame *m_accessBanner = nullptr;
+    QLabel *m_accessIcon = nullptr;
+    QLabel *m_accessLabel = nullptr;
+    QPushButton *m_accessButton = nullptr;
     QPushButton *m_btnRefresh = nullptr;
     QPushButton *m_btnCheckUpdate = nullptr;
     QPushButton *m_btnInstall = nullptr;
@@ -82,7 +90,11 @@ private:
     QSortFilterProxyModel *m_proxy = nullptr;
 
     QModelIndex m_lastContextSourceIndex;
+    bool m_isRunningAsRoot = false;
+    bool m_adminSessionActive = false;
 
     PackageInfo packageFromSourceIndex(const QModelIndex &sourceIndex) const;
     void handleWhatProvidesPaths(const QStringList &paths, const QString &sourceLabel);
+    QString runCommand(const QString &program, const QStringList &arguments, int &exitCode,
+                       bool requireAdmin = false);
 };

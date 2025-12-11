@@ -42,6 +42,7 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QLabel>
+#include <QPixmap>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
@@ -53,6 +54,7 @@
 #include <iostream>
 #include <chrono>
 #include <algorithm>
+#include <unistd.h>
 
 //using Milliseconds = std::chrono::milliseconds;
 
@@ -303,6 +305,30 @@ MainWindow::MainWindow(QWidget *parent)
     central->setStatusTip(QStringLiteral("USE YOUR MOUSE RIGHT BUTTON."));
     auto *mainLayout = new QVBoxLayout(central);
 
+    m_isRunningAsRoot = (::geteuid() == 0);
+    m_adminSessionActive = m_isRunningAsRoot;
+
+    /** Access banner: shows limited/admin mode and toggle */
+    m_accessBanner = new QFrame(central);
+    m_accessBanner->setObjectName(QStringLiteral("accessFrame"));
+    m_accessBanner->setFrameShape(QFrame::StyledPanel);
+    m_accessBanner->setFrameShadow(QFrame::Plain);
+    auto *accessLayout = new QHBoxLayout(m_accessBanner);
+    accessLayout->setContentsMargins(10, 6, 10, 6);
+
+    m_accessIcon = new QLabel(m_accessBanner);
+    m_accessLabel = new QLabel(m_accessBanner);
+    m_accessLabel->setWordWrap(true);
+    m_accessButton = new QPushButton(m_accessBanner);
+
+    accessLayout->addWidget(m_accessIcon);
+    accessLayout->addWidget(m_accessLabel, /*stretch*/ 1);
+    accessLayout->addWidget(m_accessButton, /*stretch*/ 0, Qt::AlignRight);
+
+    connect(m_accessButton, &QPushButton::clicked, this, &MainWindow::onAccessToggleRequested);
+
+    mainLayout->addWidget(m_accessBanner);
+
     /** Top bar: search + refresh */
     auto *topLayout = new QHBoxLayout();
     m_searchEdit = new QLineEdit(central);
@@ -409,6 +435,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_btnWhatProvidesDnD, &QPushButton::clicked, this, &MainWindow::onWhatProvidesDnD);
     connect(m_tableView, &QTableView::customContextMenuRequested,
             this, &MainWindow::onTableContextMenu);
+
+    updateAccessBanner();
 
     // Initial load
     refreshPackages();
@@ -638,19 +666,187 @@ QVector<PackageInfo> MainWindow::queryInstalledPackages() const
 
 QString MainWindow::runCommand(const QString &program,
                                const QStringList &arguments,
-                               int &exitCode) const
+                               int &exitCode,
+                               bool requireAdmin)
 {
+    QString effectiveProgram = program;
+    QStringList effectiveArgs = arguments;
+
+    if (requireAdmin && !m_isRunningAsRoot) {
+        if (!ensureAdminAccess()) {
+            exitCode = -1;
+            return tr("Administrative access was not granted. Command skipped.");
+        }
+        effectiveArgs.prepend(program);
+        effectiveProgram = QStringLiteral("sudo");
+        effectiveArgs.prepend(QStringLiteral("-n"));
+    }
+
     QProcess proc;
     proc.setProcessChannelMode(QProcess::MergedChannels);
-    proc.start(program, arguments);
+    proc.start(effectiveProgram, effectiveArgs);
+
+    if (!proc.waitForStarted(WaitForStartedTimeoutMs)) {
+        exitCode = -1;
+        return tr("Failed to start %1").arg(effectiveProgram);
+    }
 
     if (!proc.waitForFinished(-1)) {
         exitCode = -1;
-        return QStringLiteral("Command timed out or failed to start.");
+        return tr("Command failed to finish.");
+    }
+
+    if (proc.exitStatus() != QProcess::NormalExit) {
+        exitCode = -1;
+        return tr("%1 crashed while running.").arg(effectiveProgram);
     }
 
     exitCode = proc.exitCode();
-    return QString::fromLocal8Bit(proc.readAll());
+    const QString output = QString::fromLocal8Bit(proc.readAll());
+    if (requireAdmin && !m_isRunningAsRoot && exitCode != 0) {
+        const bool authExpired = output.contains(QStringLiteral("password"), Qt::CaseInsensitive)
+                                 || output.contains(QStringLiteral("authentication"),
+                                                    Qt::CaseInsensitive);
+        if (authExpired) {
+            m_adminSessionActive = false;
+            updateAccessBanner();
+        }
+    }
+    return output;
+}
+
+bool MainWindow::isAdminActive() const
+{
+    return m_isRunningAsRoot || m_adminSessionActive;
+}
+
+void MainWindow::updateAccessBanner()
+{
+    const bool admin = isAdminActive();
+    const QString iconPath = admin
+                                 ? QStringLiteral(":/src/icons/lock-open.png")
+                                 : QStringLiteral(":/src/icons/lock-closed.png");
+
+    if (m_accessIcon) {
+        QPixmap pix(iconPath);
+        m_accessIcon->setPixmap(
+            pix.scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+
+    if (m_accessLabel) {
+        if (m_isRunningAsRoot) {
+            m_accessLabel->setText(tr("Administrative access active (running as root)."));
+        } else if (admin) {
+            m_accessLabel->setText(
+                tr("Administrative access active. Commands will run with sudo."));
+        } else {
+            m_accessLabel->setText(
+                tr("Limited access. Elevate to install/remove packages or refresh repositories."));
+        }
+    }
+
+    if (m_accessBanner) {
+        const QString bgColor = admin ? QStringLiteral("#e4f6e1")
+                                      : QStringLiteral("#fff4e5");
+        const QString borderColor = admin ? QStringLiteral("#5c9e50")
+                                          : QStringLiteral("#c77b30");
+        m_accessBanner->setStyleSheet(
+            QStringLiteral(
+                "QFrame#accessFrame { background-color: %1; border: 1px solid %2; border-radius: 4px; }")
+                .arg(bgColor, borderColor));
+    }
+
+    if (m_accessButton) {
+        if (m_isRunningAsRoot) {
+            m_accessButton->setText(tr("Running as root"));
+            m_accessButton->setEnabled(false);
+        } else if (admin) {
+            m_accessButton->setText(tr("Return to limited access"));
+            m_accessButton->setEnabled(true);
+        } else {
+            m_accessButton->setText(tr("Request administrative access"));
+            m_accessButton->setEnabled(true);
+        }
+    }
+}
+
+bool MainWindow::ensureAdminAccess()
+{
+    if (isAdminActive())
+        return true;
+
+    bool ok = false;
+    QString password = QInputDialog::getText(
+        this,
+        tr("Administrative access required"),
+        tr("Enter the root password to run package tasks:"),
+        QLineEdit::Password,
+        QString(),
+        &ok);
+    if (!ok || password.trimmed().isEmpty())
+        return false;
+
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral("sudo"),
+               {QStringLiteral("-S"), QStringLiteral("-p"), QStringLiteral(" "),
+                QStringLiteral("-v")});
+
+    if (!proc.waitForStarted(WaitForStartedTimeoutMs)) {
+        QMessageBox::warning(this, tr("sudo failed"),
+                             tr("Could not start sudo to validate credentials."));
+        return false;
+    }
+
+    proc.write(password.toUtf8());
+    proc.write("\n");
+    proc.closeWriteChannel();
+    password.fill(QChar(' '));
+
+    if (!proc.waitForFinished(WaitForFinishedTimeoutMs)) {
+        proc.kill();
+        QMessageBox::warning(this, tr("sudo timeout"),
+                             tr("Timed out while validating administrative access."));
+        return false;
+    }
+
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+        const QString errorOutput = QString::fromLocal8Bit(proc.readAll()).trimmed();
+        QMessageBox::warning(this, tr("Access denied"),
+                             tr("Root password was rejected.\n%1").arg(errorOutput));
+        return false;
+    }
+
+    m_adminSessionActive = true;
+    updateAccessBanner();
+    return true;
+}
+
+void MainWindow::dropAdminAccess()
+{
+    if (!m_adminSessionActive || m_isRunningAsRoot) {
+        m_adminSessionActive = m_isRunningAsRoot;
+        updateAccessBanner();
+        return;
+    }
+
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral("sudo"), {QStringLiteral("-K")});
+    if (!proc.waitForFinished(WaitForFinishedTimeoutMs)) {
+        proc.kill();
+    }
+    m_adminSessionActive = false;
+    updateAccessBanner();
+}
+
+void MainWindow::onAccessToggleRequested()
+{
+    if (isAdminActive() && !m_isRunningAsRoot) {
+        dropAdminAccess();
+        return;
+    }
+    ensureAdminAccess();
 }
 
 void MainWindow::showTextDialog(const QString &title, const QString &text) const
@@ -991,7 +1187,7 @@ PackageInfo MainWindow::currentSelectedPackage() const
 void MainWindow::onDnfCheckUpdate()
 {
     int exitCode = 0;
-    QString output = runCommand("dnf", {"check-update"}, exitCode);
+    QString output = runCommand("dnf", {"check-update"}, exitCode, /*requireAdmin*/ true);
 
     QString title = tr("dnf check-update (exit %1)").arg(exitCode);
     showTextDialog(title, output);
@@ -1008,7 +1204,8 @@ void MainWindow::onInstallPackage()
         return;
 
     int exitCode = 0;
-    QString output = runCommand("dnf", {"install", "-y", pkgName.trimmed()}, exitCode);
+    QString output = runCommand("dnf", {"install", "-y", pkgName.trimmed()}, exitCode,
+                                /*requireAdmin*/ true);
 
     QString title = tr("dnf install %1 (exit %2)")
                         .arg(pkgName.trimmed())
@@ -1029,7 +1226,8 @@ void MainWindow::onRemovePackage()
         return;
 
     int exitCode = 0;
-    QString output = runCommand("dnf", {"remove", "-y", pkgName.trimmed()}, exitCode);
+    QString output = runCommand("dnf", {"remove", "-y", pkgName.trimmed()}, exitCode,
+                                /*requireAdmin*/ true);
 
     QString title = tr("dnf remove %1 (exit %2)")
                         .arg(pkgName.trimmed())

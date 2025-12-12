@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(TurboRPM VERSION 0.1 LANGUAGES CXX)
+project(TurboRPM VERSION 0.0.1 LANGUAGES CXX)
 
 # Qt auto-moc/uic/rcc
 set(CMAKE_AUTOMOC ON)

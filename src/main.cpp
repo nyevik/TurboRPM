@@ -28,15 +28,28 @@ int main(int argc, char *argv[])
     QString appVersion = QCoreApplication::applicationVersion();
 
     #ifdef QT_DEBUG
-    qDebug() << "Icon exists?"
-         << QFile(":/src/icons/yumex.png").exists();
-    
+    QDebug dbg(QtDebugMsg);//on stack
+    dbg << "Main Icon exists? " << QFile(":/src/icons/yumex.png").exists() << Qt::endl;
+    dbg << "Main Icon isNull? " << appIcon.isNull() << Qt::endl;
+    dbg << "Application Name: " << appName << Qt::endl;
+    dbg << "Organization Name: " << orgName << Qt::endl;
+    dbg << "TurboRPM Application Version: " << appVersion << Qt::endl;
+    dbg << "Qt Version: " << QT_VERSION_STR << Qt::endl;
+    dbg << "C++ Standard Version: " << __cplusplus << Qt::endl;
+    dbg << "Platform: " << QSysInfo::prettyProductName() << Qt::endl;
+    dbg << "Build CPU Architecture: " << QSysInfo::buildCpuArchitecture() << Qt::endl;
+    dbg << "Current CPU Architecture: " << QSysInfo::currentCpuArchitecture() << Qt::endl;
+    dbg << "Kernel Type: " << QSysInfo::kernelType() << Qt::endl;
+    dbg << "Kernel Version: " << QSysInfo::kernelVersion() << Qt::endl;
+    dbg << "Word Size (bits): " << QSysInfo::WordSize << Qt::endl;
+    dbg << "Byte Order: "
+         << (QSysInfo::ByteOrder == QSysInfo::BigEndian ? "Big Endian" : "Little Endian")
+         << Qt::endl;
+    dbg << "Machine Host Name: " << QSysInfo::machineHostName() << Qt::endl;
+    dbg << "Machine Unique ID (hex): " << QSysInfo::machineUniqueId().toHex() << Qt::endl;
+    dbg << "Boot Unique ID (hex): " << QSysInfo::bootUniqueId().toHex() << Qt::endl;
+    dbg << "Product Version: " << QSysInfo::productVersion() << Qt::endl;
 
-    qDebug() << "Icon isNull?"
-         << appIcon.isNull();
-    qDebug() << "Application Name:" << appName;
-    qDebug() << "Organization Name:" << orgName;
-    qDebug() << "Application Version:" << appVersion;
     #endif
     
     MainWindow w;

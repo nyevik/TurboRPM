@@ -20,7 +20,7 @@
     },
     {
       "name": "qtcreator-debug",
-      "displayName": "Debug (Qt Creator, GCC 15.2, Qt 6.10)",
+      "displayName": "Debug (Qt Creator, GCC 15.2, Qt 6.10.1)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build-qtcreator-debug",
       "cacheVariables": {

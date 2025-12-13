@@ -10,10 +10,18 @@
 #include <QFile>
 #include <QIcon>
 #include <QCoreApplication>
+#include <QSysInfo>
+#include <QLoggingCategory>
 #include "mainwindow.h"
 
-int main(int argc, char *argv[])
+#ifdef QT_DEBUG
+static inline QDebug DBG()
 {
+    return qDebug().noquote().nospace();
+}
+#endif
+int main(int argc, char *argv[])
+{  
     QApplication app(argc, argv);
     QApplication::setApplicationDisplayName("TurboRPM Package Manager Prototype");
     const QIcon appIcon(":/src/icons/yumex.png");
@@ -28,27 +36,28 @@ int main(int argc, char *argv[])
     QString appVersion = QCoreApplication::applicationVersion();
 
     #ifdef QT_DEBUG
-    QDebug dbg(QtDebugMsg);//on stack
-    dbg << "Main Icon exists? " << QFile(":/src/icons/yumex.png").exists() << Qt::endl;
-    dbg << "Main Icon isNull? " << appIcon.isNull() << Qt::endl;
-    dbg << "Application Name: " << appName << Qt::endl;
-    dbg << "Organization Name: " << orgName << Qt::endl;
-    dbg << "TurboRPM Application Version: " << appVersion << Qt::endl;
-    dbg << "Qt Version: " << QT_VERSION_STR << Qt::endl;
-    dbg << "C++ Standard Version: " << __cplusplus << Qt::endl;
-    dbg << "Platform: " << QSysInfo::prettyProductName() << Qt::endl;
-    dbg << "Build CPU Architecture: " << QSysInfo::buildCpuArchitecture() << Qt::endl;
-    dbg << "Current CPU Architecture: " << QSysInfo::currentCpuArchitecture() << Qt::endl;
-    dbg << "Kernel Type: " << QSysInfo::kernelType() << Qt::endl;
-    dbg << "Kernel Version: " << QSysInfo::kernelVersion() << Qt::endl;
-    dbg << "Word Size (bits): " << QSysInfo::WordSize << Qt::endl;
-    dbg << "Byte Order: "
+    DBG() << "=== TurboRPM Package Manager Prototype Debug Info ===\n";
+    DBG() << "Main Icon exists? " << QFile(":/src/icons/yumex.png").exists();
+    DBG() << "Main Icon isNull? " << appIcon.isNull();
+    DBG() << "Application Name: " << appName;
+    DBG() << "Organization Name: " << orgName;
+    DBG() << "TurboRPM Application Version: " << appVersion;
+    DBG() << "Qt Version: " << QT_VERSION_STR;
+    DBG() << "C++ Standard Version: " << __cplusplus;
+    DBG() << "Platform: " << QSysInfo::prettyProductName();
+    DBG() << "Build CPU Architecture: " << QSysInfo::buildCpuArchitecture();
+    DBG() << "Current CPU Architecture: " << QSysInfo::currentCpuArchitecture();
+    DBG() << "Kernel Type: " << QSysInfo::kernelType();
+    DBG() << "Kernel Version: " << QSysInfo::kernelVersion();
+    DBG() << "Word Size (bits): " << QSysInfo::WordSize;
+    DBG() << "Byte Order: "
          << (QSysInfo::ByteOrder == QSysInfo::BigEndian ? "Big Endian" : "Little Endian")
-         << Qt::endl;
-    dbg << "Machine Host Name: " << QSysInfo::machineHostName() << Qt::endl;
-    dbg << "Machine Unique ID (hex): " << QSysInfo::machineUniqueId().toHex() << Qt::endl;
-    dbg << "Boot Unique ID (hex): " << QSysInfo::bootUniqueId().toHex() << Qt::endl;
-    dbg << "Product Version: " << QSysInfo::productVersion() << Qt::endl;
+         << "\n";
+    DBG() << "Machine Host Name: " << QSysInfo::machineHostName() << "\n";
+    DBG() << "Machine Unique ID (hex): " << QSysInfo::machineUniqueId().toHex();
+    DBG() << "Boot Unique ID (hex): " << QSysInfo::bootUniqueId().toHex();
+    DBG() << "Product Version: " << QSysInfo::productVersion();
+    DBG() << "Product Type: " << QSysInfo::productType();
 
     #endif
     
